@@ -1,4 +1,4 @@
-name: default
+name: local
 checks:
   # Pull the SVG out of the model response - handles fenced code
   # blocks and surrounding prose. Fails if no SVG is found at all,
@@ -18,11 +18,11 @@ checks:
     creates: render.png
     required: true
 
-  # Score the rendered image with a vision model. The judge applies
-  # every tag from this controlled vocabulary that is true of the image.
+  # Score the rendered image with a local vision model served by
+  # LM Studio - same checks as the default grader, different judge.
   - checker: ../checkers/llm-judge-image
     image: render.png
-    model: gpt-4.1
+    model: google/gemma-4-31b-qat
     tags:
       - recognizable_pelican
       - recognizable_bicycle
@@ -42,7 +42,4 @@ checks:
       up to 2 points for overall composition and charm.
 
 scoring:
-  # The Grade fails if any required Check fails; otherwise the
-  # score from the final Check decides pass/fail. Scores are
-  # normalized 0.0-1.0 per the check result contract.
   pass_threshold: 0.5
