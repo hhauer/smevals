@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+# Type-checks the extracted module with a pinned TypeScript version so
+# the Grader snapshot fully determines behavior. Failing tsc fails the
+# Check; the first five compiler errors land in notes.
+import json
+import os
+import subprocess
+import sys
+
+version = os.environ["SMEVALS_CHECK_TYPESCRIPT_VERSION"]
+file = os.environ.get("SMEVALS_CHECK_FILE", "solution.ts")
+
+proc = subprocess.run(
+    [
+        "npx",
+        "-y",
+        "--package",
+        f"typescript@{version}",
+        "tsc",
+        "--strict",
+        "--noEmit",
+        "--target",
+        "es2022",
+        file,
+    ],
+    capture_output=True,
+    text=True,
+)
+if proc.returncode == 0:
+    print(json.dumps({"notes": f"tsc {version} --strict: clean"}))
+    sys.exit(0)
+
+errors = [line for line in proc.stdout.splitlines() if "error TS" in line]
+shown = "\n".join(errors[:5]) or proc.stdout.strip() or proc.stderr.strip()
+print(
+    json.dumps(
+        {
+            "notes": f"tsc {version} --strict: {len(errors)} error(s)\n{shown}",
+            "metrics": {"tsc_errors": len(errors)},
+        }
+    )
+)
+sys.exit(1)

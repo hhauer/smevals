@@ -92,3 +92,29 @@ def test_extract_ts_honors_creates(tmp_path):
     proc, _ = run_checker("extract-ts", ws, run_dir, check={"creates": "code.ts"})
     assert proc.returncode == 0
     assert (ws / "code.ts").exists()
+
+
+GOOD_TS = "export function double(x: number): number {\n  return x * 2;\n}\n"
+BAD_TS = 'export function double(x: number): number {\n  return "nope";\n}\n'
+
+
+@requires_node
+def test_tsc_check_passes_valid_ts(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    (ws / "solution.ts").write_text(GOOD_TS)
+    proc, result = run_checker(
+        "tsc-check", ws, run_dir, check={"typescript_version": "5.9"}
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "5.9" in result["notes"]
+
+
+@requires_node
+def test_tsc_check_fails_type_error_with_notes(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    (ws / "solution.ts").write_text(BAD_TS)
+    proc, result = run_checker(
+        "tsc-check", ws, run_dir, check={"typescript_version": "5.9"}
+    )
+    assert proc.returncode != 0
+    assert "TS2322" in result["notes"]
