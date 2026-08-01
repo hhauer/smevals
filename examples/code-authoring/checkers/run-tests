@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+// Runs the eval's hidden data-driven cases against the extracted
+// solution. Score is the fraction of cases passing; metrics get one
+// boolean per case group; groups with failures become fails_<group>
+// tags. The harness runs in a child process with an overall timeout so
+// a hanging solution cannot hang the Grader.
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const casesPath = path.resolve(here, "..", process.env.SMEVALS_CHECK_CASES);
+const solutionPath = path.resolve(process.env.SMEVALS_CHECK_SOLUTION ?? "solution.ts");
+const timeoutMs = Number(process.env.SMEVALS_CHECK_TIMEOUT_MS ?? 30000);
+
+const child = spawnSync(
+  process.execPath,
+  [path.join(here, "ts-case-harness.mjs"), casesPath, solutionPath],
+  { timeout: timeoutMs, encoding: "utf8" }
+);
+
+const events = (child.stdout ?? "")
+  .split("\n")
+  .filter((line) => line.trim())
+  .map((line) => JSON.parse(line));
+
+const tags = [];
+const timedOut = child.signal === "SIGTERM" || child.signal === "SIGKILL";
+if (timedOut) tags.push("timeout");
+const importError = events.find((e) => e.importError);
+if (importError) tags.push("import_error");
+if (!timedOut && !importError && child.status !== 0) {
+  // The harness itself crashed: surface it as a failed check with notes.
+  console.log(
+    JSON.stringify({ score: 0.0, notes: `harness crashed: ${child.stderr.slice(0, 500)}` })
+  );
+  process.exit(1);
+}
+
+const results = events.filter((e) => e.group);
+const groups = {};
+for (const r of results) {
+  (groups[r.group] ??= []).push(r);
+}
+const passed = results.filter((r) => r.pass).length;
+// Timed-out runs are scored over the cases that got a verdict; an
+// import error means zero cases ran, which scores 0 below.
+const total = importError ? 1 : results.length || 1;
+
+const metrics = { cases_passed: passed, cases_total: results.length };
+for (const [group, rs] of Object.entries(groups)) {
+  const ok = rs.every((r) => r.pass);
+  metrics[group] = ok;
+  if (!ok) tags.push(`fails_${group}`);
+}
+if (results.some((r) => r.error)) tags.push("throws_at_runtime");
+
+const failures = results
+  .filter((r) => !r.pass)
+  .slice(0, 5)
+  .map(({ pass, ...rest }) => rest);
+if (importError) failures.unshift({ error: importError.importError });
+
+const score = passed / total;
+const allPass = !importError && !timedOut && results.length > 0 && passed === results.length;
+console.log(
+  JSON.stringify({
+    score,
+    metrics,
+    tags,
+    notes: `${passed}/${results.length} cases passed`,
+    details: { failures },
+  })
+);
+process.exit(allPass ? 0 : 1);

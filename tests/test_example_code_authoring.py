@@ -118,3 +118,69 @@ def test_tsc_check_fails_type_error_with_notes(tmp_path):
     )
     assert proc.returncode != 0
     assert "TS2322" in result["notes"]
+
+
+TOY_CASES = """
+export const cases = [
+  { group: "math", name: "doubles", run: (m: any) => m.double(2), expect: 4 },
+  { group: "math", name: "zero", run: (m: any) => m.double(0), expect: 0 },
+  { group: "shape", name: "object", run: (m: any) => ({ v: m.double(3) }), expect: { v: 6 } },
+];
+"""
+
+
+def toy_check(tmp_path, cases_src=TOY_CASES):
+    (tmp_path / "cases.ts").write_text(cases_src)
+    rel = os.path.relpath(tmp_path / "cases.ts", SUITE)
+    return {"cases": rel}
+
+
+@requires_node
+def test_run_tests_all_pass(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    (ws / "solution.ts").write_text(GOOD_TS)
+    proc, result = run_checker("run-tests", ws, run_dir, check=toy_check(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert result["score"] == 1.0
+    assert result["metrics"]["math"] is True
+    assert result["metrics"]["cases_total"] == 3
+    assert result["tags"] == []
+
+
+@requires_node
+def test_run_tests_partial_credit_and_group_tags(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    (ws / "solution.ts").write_text(
+        "export function double(x: number): number { return x === 0 ? 1 : x * 2; }\n"
+    )
+    proc, result = run_checker("run-tests", ws, run_dir, check=toy_check(tmp_path))
+    assert proc.returncode != 0
+    assert result["score"] == pytest.approx(2 / 3)
+    assert result["metrics"]["math"] is False
+    assert result["metrics"]["shape"] is True
+    assert "fails_math" in result["tags"]
+    failure = result["details"]["failures"][0]
+    assert failure["name"] == "zero" and failure["expected"] == 0 and failure["got"] == 1
+
+
+@requires_node
+def test_run_tests_throwing_solution(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    (ws / "solution.ts").write_text(
+        'export function double(x: number): number { throw new Error("boom"); }\n'
+    )
+    proc, result = run_checker("run-tests", ws, run_dir, check=toy_check(tmp_path))
+    assert proc.returncode != 0
+    assert result["score"] == 0.0
+    assert "throws_at_runtime" in result["tags"]
+    assert "boom" in result["details"]["failures"][0]["error"]
+
+
+@requires_node
+def test_run_tests_unimportable_solution(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    (ws / "solution.ts").write_text("export const = broken syntax(((\n")
+    proc, result = run_checker("run-tests", ws, run_dir, check=toy_check(tmp_path))
+    assert proc.returncode != 0
+    assert result["score"] == 0.0
+    assert "import_error" in result["tags"]
