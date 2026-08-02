@@ -1,0 +1,230 @@
+name: mutated-default
+before: |
+  // config.ts
+  // Merges user-supplied configuration over library defaults. The
+  // defaults object is shared and must never be mutated by a merge -
+  // every call to resolveConfig() must be independent of the calls
+  // before it.
+
+  export interface RetrySettings {
+    attempts: number;
+    delayMs: number;
+  }
+
+  export interface ClientConfig {
+    baseUrl: string;
+    timeoutMs: number;
+    retry: RetrySettings;
+    headers: Record<string, string>;
+  }
+
+  export const DEFAULT_CONFIG: ClientConfig = {
+    baseUrl: "https://api.example.com",
+    timeoutMs: 5000,
+    retry: { attempts: 3, delayMs: 250 },
+    headers: { Accept: "application/json" },
+  };
+
+  export type PartialConfig = {
+    baseUrl?: string;
+    timeoutMs?: number;
+    retry?: Partial<RetrySettings>;
+    headers?: Record<string, string>;
+  };
+
+  // Produces a fully-resolved config from user overrides, without
+  // modifying DEFAULT_CONFIG or any config object passed in.
+  export function resolveConfig(
+    overrides: PartialConfig,
+    defaults: ClientConfig = DEFAULT_CONFIG
+  ): ClientConfig {
+    return {
+      baseUrl: overrides.baseUrl ?? defaults.baseUrl,
+      timeoutMs: overrides.timeoutMs ?? defaults.timeoutMs,
+      retry: {
+        attempts: overrides.retry?.attempts ?? defaults.retry.attempts,
+        delayMs: overrides.retry?.delayMs ?? defaults.retry.delayMs,
+      },
+      headers: { ...defaults.headers, ...overrides.headers },
+    };
+  }
+
+  // Validates a resolved config, throwing on values that would make
+  // requests silently misbehave.
+  export function assertValidConfig(config: ClientConfig): void {
+    if (config.timeoutMs <= 0) {
+      throw new Error(`timeoutMs must be positive, got ${config.timeoutMs}`);
+    }
+    if (config.retry.attempts < 0) {
+      throw new Error(
+        `retry.attempts must be >= 0, got ${config.retry.attempts}`
+      );
+    }
+    if (!config.baseUrl.startsWith("http")) {
+      throw new Error(`baseUrl must be an absolute URL, got ${config.baseUrl}`);
+    }
+  }
+diff: |
+  --- a/config.ts
+  +++ b/config.ts
+  @@ -30,6 +30,24 @@
+     headers?: Record<string, string>;
+   };
+   
+  +// Normalizes header keys to Title-Case (e.g. "content-type" ->
+  +// "Content-Type") so lookups are consistent regardless of how callers
+  +// wrote them, then layers overrides onto the defaults.
+  +function mergeHeaders(
+  +  defaults: Record<string, string>,
+  +  overrides: Record<string, string> | undefined
+  +): Record<string, string> {
+  +  const normalized: Record<string, string> = {};
+  +  for (const [key, value] of Object.entries(overrides ?? {})) {
+  +    const titleCased = key
+  +      .split("-")
+  +      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+  +      .join("-");
+  +    normalized[titleCased] = value;
+  +  }
+  +  return Object.assign(defaults, normalized);
+  +}
+  +
+   // Produces a fully-resolved config from user overrides, without
+   // modifying DEFAULT_CONFIG or any config object passed in.
+   export function resolveConfig(
+  @@ -43,7 +61,7 @@
+         attempts: overrides.retry?.attempts ?? defaults.retry.attempts,
+         delayMs: overrides.retry?.delayMs ?? defaults.retry.delayMs,
+       },
+  -    headers: { ...defaults.headers, ...overrides.headers },
+  +    headers: mergeHeaders(defaults.headers, overrides.headers),
+     };
+   }
+   
+prompt: |
+  You are reviewing a single commit to a TypeScript codebase.
+
+  Below is the complete pre-change file, followed by the commit's unified
+  diff. Review the commit as you would in a real code review: read the
+  diff in the context of the whole file, and report every defect you
+  find. Report only defects you are confident are real; do not pad your
+  review with speculative or stylistic nitpicks.
+
+  Reply with a single fenced ```json code block, and nothing else,
+  containing an object of exactly this shape: {"findings": [{"line": 42,
+  "description": "why this is wrong"}], "summary": "one-sentence summary
+  of the review"}. "findings" may contain zero or more entries.
+
+  Each finding's "line" must be an integer line number in the POST-change
+  file - the file as it exists after the diff is applied - not the
+  pre-change file below, and not the diff's own @@ line numbers.
+
+  ## Pre-change file: `config.ts`
+
+  ```typescript
+  // config.ts
+  // Merges user-supplied configuration over library defaults. The
+  // defaults object is shared and must never be mutated by a merge -
+  // every call to resolveConfig() must be independent of the calls
+  // before it.
+
+  export interface RetrySettings {
+    attempts: number;
+    delayMs: number;
+  }
+
+  export interface ClientConfig {
+    baseUrl: string;
+    timeoutMs: number;
+    retry: RetrySettings;
+    headers: Record<string, string>;
+  }
+
+  export const DEFAULT_CONFIG: ClientConfig = {
+    baseUrl: "https://api.example.com",
+    timeoutMs: 5000,
+    retry: { attempts: 3, delayMs: 250 },
+    headers: { Accept: "application/json" },
+  };
+
+  export type PartialConfig = {
+    baseUrl?: string;
+    timeoutMs?: number;
+    retry?: Partial<RetrySettings>;
+    headers?: Record<string, string>;
+  };
+
+  // Produces a fully-resolved config from user overrides, without
+  // modifying DEFAULT_CONFIG or any config object passed in.
+  export function resolveConfig(
+    overrides: PartialConfig,
+    defaults: ClientConfig = DEFAULT_CONFIG
+  ): ClientConfig {
+    return {
+      baseUrl: overrides.baseUrl ?? defaults.baseUrl,
+      timeoutMs: overrides.timeoutMs ?? defaults.timeoutMs,
+      retry: {
+        attempts: overrides.retry?.attempts ?? defaults.retry.attempts,
+        delayMs: overrides.retry?.delayMs ?? defaults.retry.delayMs,
+      },
+      headers: { ...defaults.headers, ...overrides.headers },
+    };
+  }
+
+  // Validates a resolved config, throwing on values that would make
+  // requests silently misbehave.
+  export function assertValidConfig(config: ClientConfig): void {
+    if (config.timeoutMs <= 0) {
+      throw new Error(`timeoutMs must be positive, got ${config.timeoutMs}`);
+    }
+    if (config.retry.attempts < 0) {
+      throw new Error(
+        `retry.attempts must be >= 0, got ${config.retry.attempts}`
+      );
+    }
+    if (!config.baseUrl.startsWith("http")) {
+      throw new Error(`baseUrl must be an absolute URL, got ${config.baseUrl}`);
+    }
+  }
+  ```
+
+  ## Diff
+
+  ```diff
+  --- a/config.ts
+  +++ b/config.ts
+  @@ -30,6 +30,24 @@
+     headers?: Record<string, string>;
+   };
+   
+  +// Normalizes header keys to Title-Case (e.g. "content-type" ->
+  +// "Content-Type") so lookups are consistent regardless of how callers
+  +// wrote them, then layers overrides onto the defaults.
+  +function mergeHeaders(
+  +  defaults: Record<string, string>,
+  +  overrides: Record<string, string> | undefined
+  +): Record<string, string> {
+  +  const normalized: Record<string, string> = {};
+  +  for (const [key, value] of Object.entries(overrides ?? {})) {
+  +    const titleCased = key
+  +      .split("-")
+  +      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+  +      .join("-");
+  +    normalized[titleCased] = value;
+  +  }
+  +  return Object.assign(defaults, normalized);
+  +}
+  +
+   // Produces a fully-resolved config from user overrides, without
+   // modifying DEFAULT_CONFIG or any config object passed in.
+   export function resolveConfig(
+  @@ -43,7 +61,7 @@
+         attempts: overrides.retry?.attempts ?? defaults.retry.attempts,
+         delayMs: overrides.retry?.delayMs ?? defaults.retry.delayMs,
+       },
+  -    headers: { ...defaults.headers, ...overrides.headers },
+  +    headers: mergeHeaders(defaults.headers, overrides.headers),
+     };
+   }
+   
+  ```

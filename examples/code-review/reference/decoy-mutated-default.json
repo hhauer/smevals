@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "line": 8,
+      "description": "attempts should be typed as a positive-integer brand, not a bare number, since fractional retry counts are meaningless."
+    },
+    {
+      "line": 44,
+      "description": "The title-casing here doesn't handle header names with more than one hyphen-separated part beyond the first two, like 'X-My-Custom-Header'."
+    },
+    {
+      "line": 74,
+      "description": "assertValidConfig should also reject a negative retry.delayMs, but only checks retry.attempts."
+    }
+  ],
+  "summary": "Several concerns with this commit."
+}

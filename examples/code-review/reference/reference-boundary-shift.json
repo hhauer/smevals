@@ -1,0 +1,9 @@
+{
+  "findings": [
+    {
+      "line": 27,
+      "description": "hasPageToFetch uses <= instead of <, so the loop walks one page past totalPages - an off-by-one at the pagination boundary that triggers an extra out-of-range fetch."
+    }
+  ],
+  "summary": "One defect found in this commit; see the finding above."
+}

@@ -1,0 +1,8 @@
+line: 57
+window: 2
+must_mention:
+- stale.?closure
+- shared (variable|binding|state)
+- closure captur\w*
+- (same|wrong|last) job
+- reassign\w*

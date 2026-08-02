@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "line": 8,
+      "description": "unitPriceCents should allow negative values to represent return credits, but the type doesn't support this."
+    },
+    {
+      "line": 46,
+      "description": "computeFlatDiscountCents doesn't reject a negative flatCents value, which would increase the invoice total instead of discounting it."
+    },
+    {
+      "line": 72,
+      "description": "Tax should be computed on the pre-discount subtotal per most jurisdictions' rules, not the post-discount taxableCents amount used here."
+    }
+  ],
+  "summary": "Several concerns with this commit."
+}

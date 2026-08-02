@@ -7,6 +7,7 @@ smevals grade would.
 import json
 import os
 import pathlib
+import re
 import subprocess
 
 import pytest
@@ -376,3 +377,238 @@ def test_match_findings_fallback_answers_dir(tmp_path):
     finally:
         # Clean up the test answer file
         answer_file.unlink(missing_ok=True)
+
+
+# Validity tests for the six planted-defect commit-review tasks
+# (tasks/*.yaml, answers/*.yaml, reference/{reference,decoy,shotgun}-*.json).
+#
+# These don't call any LLM - they check that the tasks are internally
+# consistent: the diff actually applies to `before`, the answer key
+# points inside a hunk the diff actually touches, and the three
+# validity fixtures each land on their designed score when run through
+# the real match-findings checker.
+
+TASK_NAMES = [
+    "boundary-shift",
+    "stale-closure",
+    "float-money",
+    "mutated-default",
+    "sort-stability",
+    "swallowed-error",
+]
+
+HUNK_HEADER_RE = re.compile(r"^@@ -(\d+),(\d+) \+(\d+),(\d+) @@$")
+
+
+def apply_unified_diff(before_text, diff_text):
+    """Applies a unified diff (as produced by `diff -u`) to before_text.
+
+    A small pure-Python applier, deliberately independent of the
+    `patch`/`git apply` binaries: it walks each hunk, asserts that
+    context/removed lines actually match `before_text` at the position
+    the hunk claims, and asserts each hunk's own line-count bookkeeping
+    (old_count, new_count, new_start) stays consistent with what's been
+    produced so far. Any inconsistency raises AssertionError - a diff
+    that doesn't cleanly apply is a broken task.
+    """
+    before_lines = before_text.split("\n")
+    if before_lines and before_lines[-1] == "":
+        before_lines = before_lines[:-1]  # before_text ends in "\n"
+
+    diff_lines = diff_text.split("\n")
+    if diff_lines and diff_lines[-1] == "":
+        diff_lines = diff_lines[:-1]  # diff_text ends in "\n"
+
+    assert diff_lines[0].startswith("--- "), diff_lines[0]
+    assert diff_lines[1].startswith("+++ "), diff_lines[1]
+    idx = 2
+
+    result = []
+    cursor = 0  # 0-based index into before_lines
+    while idx < len(diff_lines):
+        m = HUNK_HEADER_RE.match(diff_lines[idx])
+        assert m, f"expected a hunk header, got: {diff_lines[idx]!r}"
+        old_start, old_count, new_start, new_count = (int(g) for g in m.groups())
+        idx += 1
+
+        # Copy the unchanged lines between the previous hunk and this one
+        gap_end = old_start - 1
+        assert gap_end >= cursor, "hunks out of order or overlapping"
+        result.extend(before_lines[cursor:gap_end])
+        cursor = gap_end
+
+        # The diff's own claim about where this hunk starts in the
+        # post-change file must match what we've actually produced -
+        # this is the "hunk consistency" check.
+        assert len(result) == new_start - 1, (
+            f"hunk claims to start at post-change line {new_start}, "
+            f"but {len(result)} post-change line(s) precede it"
+        )
+
+        old_consumed = new_produced = 0
+        while old_consumed < old_count or new_produced < new_count:
+            assert idx < len(diff_lines), "hunk body ran past the end of the diff"
+            line = diff_lines[idx]
+            idx += 1
+            marker, content = line[0], line[1:]
+            if marker == " ":
+                assert cursor < len(before_lines), "context line past end of before"
+                assert before_lines[cursor] == content, (
+                    f"context mismatch at before-line {cursor + 1}: "
+                    f"{before_lines[cursor]!r} != {content!r}"
+                )
+                result.append(content)
+                cursor += 1
+                old_consumed += 1
+                new_produced += 1
+            elif marker == "-":
+                assert cursor < len(before_lines), "removal past end of before"
+                assert before_lines[cursor] == content, (
+                    f"removal mismatch at before-line {cursor + 1}: "
+                    f"{before_lines[cursor]!r} != {content!r}"
+                )
+                cursor += 1
+                old_consumed += 1
+            elif marker == "+":
+                result.append(content)
+                new_produced += 1
+            else:
+                raise AssertionError(f"unrecognized diff line: {line!r}")
+
+        assert (
+            old_consumed == old_count
+        ), f"hunk claimed {old_count} old line(s), consumed {old_consumed}"
+        assert (
+            new_produced == new_count
+        ), f"hunk claimed {new_count} new line(s), produced {new_produced}"
+
+    result.extend(before_lines[cursor:])
+    return "\n".join(result) + "\n"
+
+
+def parse_hunk_post_ranges(diff_text):
+    "Returns [(first_post_line, last_post_line), ...], one per hunk."
+    ranges = []
+    for m in re.finditer(r"^@@ -\d+,\d+ \+(\d+),(\d+) @@$", diff_text, re.MULTILINE):
+        start, count = int(m.group(1)), int(m.group(2))
+        ranges.append((start, start + count - 1))
+    return ranges
+
+
+def load_task(name):
+    return yaml.safe_load((SUITE / "tasks" / f"{name}.yaml").read_text())
+
+
+def load_answer(name):
+    return yaml.safe_load((SUITE / "answers" / f"{name}.yaml").read_text())
+
+
+def load_fixture(kind, name):
+    return json.loads((SUITE / "reference" / f"{kind}-{name}.json").read_text())
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_task_files_exist(task_name):
+    assert (SUITE / "tasks" / f"{task_name}.yaml").exists()
+    assert (SUITE / "answers" / f"{task_name}.yaml").exists()
+    for kind in ("reference", "decoy", "shotgun"):
+        assert (SUITE / "reference" / f"{kind}-{task_name}.json").exists()
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_task_shape(task_name):
+    task = load_task(task_name)
+    assert task["name"] == task_name
+    assert 40 <= task["before"].count("\n") <= 80
+    assert "```typescript" in task["prompt"]
+    assert "```diff" in task["prompt"]
+    assert task["before"] in task["prompt"]
+    assert task["diff"] in task["prompt"]
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_diff_applies_cleanly_to_before(task_name):
+    task = load_task(task_name)
+    after = apply_unified_diff(task["before"], task["diff"])
+    # The diff must actually change something - a no-op "commit" isn't a task
+    assert after != task["before"]
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_diff_size_reads_as_one_commit(task_name):
+    "15-40 changed lines: big enough to hide a defect, small enough to review."
+    task = load_task(task_name)
+    body_lines = [
+        line
+        for line in task["diff"].splitlines()
+        if line[:1] in ("+", "-") and not line.startswith(("+++", "---"))
+    ]
+    assert 15 <= len(body_lines) <= 40
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_answer_window_and_must_mention(task_name):
+    answer = load_answer(task_name)
+    assert answer["window"] <= 3
+    assert len(answer["must_mention"]) >= 3
+    for pattern in answer["must_mention"]:
+        re.compile(pattern)  # must be a valid regex
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_defective_line_falls_inside_a_changed_hunk(task_name):
+    task = load_task(task_name)
+    answer = load_answer(task_name)
+    ranges = parse_hunk_post_ranges(task["diff"])
+    assert ranges, "diff has no hunks"
+    assert any(
+        start <= answer["line"] <= end for start, end in ranges
+    ), f"answer line {answer['line']} is outside every changed hunk: {ranges}"
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_reference_fixture_scores_one(tmp_path, task_name):
+    fixture = load_fixture("reference", task_name)
+    answer = load_answer(task_name)
+    proc, result = run_match_findings(tmp_path, fixture["findings"], answer)
+    assert proc.returncode == 0
+    assert result["score"] == 1.0
+    assert "found_planted" in result["tags"]
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_decoy_fixture_scores_zero(tmp_path, task_name):
+    fixture = load_fixture("decoy", task_name)
+    answer = load_answer(task_name)
+    proc, result = run_match_findings(tmp_path, fixture["findings"], answer)
+    assert proc.returncode == 1
+    assert result["score"] == 0.0
+    assert "missed_planted" in result["tags"]
+    assert result["metrics"]["false_positives"] >= 2
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_shotgun_fixture_scores_half(tmp_path, task_name):
+    fixture = load_fixture("shotgun", task_name)
+    answer = load_answer(task_name)
+    proc, result = run_match_findings(tmp_path, fixture["findings"], answer)
+    assert proc.returncode == 1
+    assert result["score"] == 0.5
+    assert "right_line_wrong_diagnosis" in result["tags"]
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_shotgun_descriptions_match_no_must_mention_pattern(task_name):
+    """Proves the shotgun fixture's 0.5 score is earned honestly: its
+    generic filler descriptions must not accidentally satisfy any
+    must_mention regex, or landing on the right line would score 1.0
+    by luck instead of being correctly downgraded to 0.5."""
+    fixture = load_fixture("shotgun", task_name)
+    answer = load_answer(task_name)
+    patterns = [re.compile(p, re.IGNORECASE) for p in answer["must_mention"]]
+    for finding in fixture["findings"]:
+        for pattern in patterns:
+            assert not pattern.search(finding["description"]), (
+                f"{task_name} shotgun finding {finding!r} unexpectedly "
+                f"matches must_mention pattern {pattern.pattern!r}"
+            )

@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "line": 37,
+      "description": "This change may introduce a bug."
+    },
+    {
+      "line": 57,
+      "description": "Possible issue with logic here."
+    }
+  ],
+  "summary": "Flagging several spots that changed in this diff for review."
+}

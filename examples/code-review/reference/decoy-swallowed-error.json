@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "line": 9,
+      "description": "FileUpload.bytes should be typed as Buffer, not Uint8Array, since the rest of this codebase uses Node's Buffer type for binary payloads."
+    },
+    {
+      "line": 37,
+      "description": "Initializing result.succeeded to false before the upload is even attempted means a thrown synchronous error in this function would report succeeded: false for a file that was never attempted at all."
+    },
+    {
+      "line": 66,
+      "description": "uploadBatch processes files strictly sequentially; a single slow upload blocks every file behind it in the batch."
+    }
+  ],
+  "summary": "Several concerns with this commit."
+}

@@ -1,0 +1,9 @@
+{
+  "findings": [
+    {
+      "line": 48,
+      "description": "mergeHeaders calls Object.assign(defaults, normalized), mutating the shared defaults object in place instead of returning a copy; when callers rely on the default parameter, that shared object is DEFAULT_CONFIG.headers, so headers merged in for one caller leak into every later call that doesn't override headers itself."
+    }
+  ],
+  "summary": "One defect found in this commit; see the finding above."
+}

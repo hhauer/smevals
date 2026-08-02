@@ -1,0 +1,246 @@
+name: float-money
+before: |
+  // invoice.ts
+  // Computes invoice totals from cart line items. All money amounts are
+  // integer cents throughout, to avoid floating point drift; the only
+  // place a dollar amount appears is in the formatted display string.
+
+  export interface LineItem {
+    sku: string;
+    unitPriceCents: number;
+    quantity: number;
+  }
+
+  export interface DiscountPolicy {
+    kind: "percent" | "flat";
+    // percent: 0-100; flat: a cents amount to subtract
+    value: number;
+  }
+
+  export interface InvoiceTotals {
+    subtotalCents: number;
+    discountCents: number;
+    taxCents: number;
+    totalCents: number;
+  }
+
+  const TAX_RATE = 0.0825; // 8.25%, applied to the post-discount subtotal
+
+  function lineItemTotalCents(item: LineItem): number {
+    return item.unitPriceCents * item.quantity;
+  }
+
+  function computeDiscountCents(
+    subtotalCents: number,
+    policy: DiscountPolicy | null
+  ): number {
+    if (!policy) {
+      return 0;
+    }
+    if (policy.kind === "flat") {
+      return Math.min(policy.value, subtotalCents);
+    }
+    const raw = Math.round((subtotalCents * policy.value) / 100);
+    return Math.min(raw, subtotalCents);
+  }
+
+  export function computeInvoiceTotals(
+    items: LineItem[],
+    discount: DiscountPolicy | null
+  ): InvoiceTotals {
+    const subtotalCents = items.reduce(
+      (sum, item) => sum + lineItemTotalCents(item),
+      0
+    );
+    const discountCents = computeDiscountCents(subtotalCents, discount);
+    const taxableCents = subtotalCents - discountCents;
+    const taxCents = Math.round(taxableCents * TAX_RATE);
+    const totalCents = taxableCents + taxCents;
+
+    return { subtotalCents, discountCents, taxCents, totalCents };
+  }
+
+  // Formats a cents amount as a display string, e.g. 1050 -> "$10.50".
+  export function formatCents(cents: number): string {
+    const sign = cents < 0 ? "-" : "";
+    const abs = Math.abs(cents);
+    const dollars = Math.floor(abs / 100);
+    const remainder = abs % 100;
+    return `${sign}$${dollars}.${remainder.toString().padStart(2, "0")}`;
+  }
+diff: |
+  --- a/invoice.ts
+  +++ b/invoice.ts
+  @@ -28,6 +28,24 @@
+     return item.unitPriceCents * item.quantity;
+   }
+   
+  +// Percent-off discounts round to the nearest cent, capped at the
+  +// subtotal so a discount can never make the invoice negative.
+  +function computePercentDiscountCents(
+  +  subtotalCents: number,
+  +  percent: number
+  +): number {
+  +  const subtotalDollars = subtotalCents / 100;
+  +  const discountDollars = subtotalDollars * (percent / 100);
+  +  return Math.min(Math.round(discountDollars * 100), subtotalCents);
+  +}
+  +
+  +function computeFlatDiscountCents(
+  +  subtotalCents: number,
+  +  flatCents: number
+  +): number {
+  +  return Math.min(flatCents, subtotalCents);
+  +}
+  +
+   function computeDiscountCents(
+     subtotalCents: number,
+     policy: DiscountPolicy | null
+  @@ -36,10 +54,9 @@
+       return 0;
+     }
+     if (policy.kind === "flat") {
+  -    return Math.min(policy.value, subtotalCents);
+  +    return computeFlatDiscountCents(subtotalCents, policy.value);
+     }
+  -  const raw = Math.round((subtotalCents * policy.value) / 100);
+  -  return Math.min(raw, subtotalCents);
+  +  return computePercentDiscountCents(subtotalCents, policy.value);
+   }
+   
+   export function computeInvoiceTotals(
+prompt: |
+  You are reviewing a single commit to a TypeScript codebase.
+
+  Below is the complete pre-change file, followed by the commit's unified
+  diff. Review the commit as you would in a real code review: read the
+  diff in the context of the whole file, and report every defect you
+  find. Report only defects you are confident are real; do not pad your
+  review with speculative or stylistic nitpicks.
+
+  Reply with a single fenced ```json code block, and nothing else,
+  containing an object of exactly this shape: {"findings": [{"line": 42,
+  "description": "why this is wrong"}], "summary": "one-sentence summary
+  of the review"}. "findings" may contain zero or more entries.
+
+  Each finding's "line" must be an integer line number in the POST-change
+  file - the file as it exists after the diff is applied - not the
+  pre-change file below, and not the diff's own @@ line numbers.
+
+  ## Pre-change file: `invoice.ts`
+
+  ```typescript
+  // invoice.ts
+  // Computes invoice totals from cart line items. All money amounts are
+  // integer cents throughout, to avoid floating point drift; the only
+  // place a dollar amount appears is in the formatted display string.
+
+  export interface LineItem {
+    sku: string;
+    unitPriceCents: number;
+    quantity: number;
+  }
+
+  export interface DiscountPolicy {
+    kind: "percent" | "flat";
+    // percent: 0-100; flat: a cents amount to subtract
+    value: number;
+  }
+
+  export interface InvoiceTotals {
+    subtotalCents: number;
+    discountCents: number;
+    taxCents: number;
+    totalCents: number;
+  }
+
+  const TAX_RATE = 0.0825; // 8.25%, applied to the post-discount subtotal
+
+  function lineItemTotalCents(item: LineItem): number {
+    return item.unitPriceCents * item.quantity;
+  }
+
+  function computeDiscountCents(
+    subtotalCents: number,
+    policy: DiscountPolicy | null
+  ): number {
+    if (!policy) {
+      return 0;
+    }
+    if (policy.kind === "flat") {
+      return Math.min(policy.value, subtotalCents);
+    }
+    const raw = Math.round((subtotalCents * policy.value) / 100);
+    return Math.min(raw, subtotalCents);
+  }
+
+  export function computeInvoiceTotals(
+    items: LineItem[],
+    discount: DiscountPolicy | null
+  ): InvoiceTotals {
+    const subtotalCents = items.reduce(
+      (sum, item) => sum + lineItemTotalCents(item),
+      0
+    );
+    const discountCents = computeDiscountCents(subtotalCents, discount);
+    const taxableCents = subtotalCents - discountCents;
+    const taxCents = Math.round(taxableCents * TAX_RATE);
+    const totalCents = taxableCents + taxCents;
+
+    return { subtotalCents, discountCents, taxCents, totalCents };
+  }
+
+  // Formats a cents amount as a display string, e.g. 1050 -> "$10.50".
+  export function formatCents(cents: number): string {
+    const sign = cents < 0 ? "-" : "";
+    const abs = Math.abs(cents);
+    const dollars = Math.floor(abs / 100);
+    const remainder = abs % 100;
+    return `${sign}$${dollars}.${remainder.toString().padStart(2, "0")}`;
+  }
+  ```
+
+  ## Diff
+
+  ```diff
+  --- a/invoice.ts
+  +++ b/invoice.ts
+  @@ -28,6 +28,24 @@
+     return item.unitPriceCents * item.quantity;
+   }
+   
+  +// Percent-off discounts round to the nearest cent, capped at the
+  +// subtotal so a discount can never make the invoice negative.
+  +function computePercentDiscountCents(
+  +  subtotalCents: number,
+  +  percent: number
+  +): number {
+  +  const subtotalDollars = subtotalCents / 100;
+  +  const discountDollars = subtotalDollars * (percent / 100);
+  +  return Math.min(Math.round(discountDollars * 100), subtotalCents);
+  +}
+  +
+  +function computeFlatDiscountCents(
+  +  subtotalCents: number,
+  +  flatCents: number
+  +): number {
+  +  return Math.min(flatCents, subtotalCents);
+  +}
+  +
+   function computeDiscountCents(
+     subtotalCents: number,
+     policy: DiscountPolicy | null
+  @@ -36,10 +54,9 @@
+       return 0;
+     }
+     if (policy.kind === "flat") {
+  -    return Math.min(policy.value, subtotalCents);
+  +    return computeFlatDiscountCents(subtotalCents, policy.value);
+     }
+  -  const raw = Math.round((subtotalCents * policy.value) / 100);
+  -  return Math.min(raw, subtotalCents);
+  +  return computePercentDiscountCents(subtotalCents, policy.value);
+   }
+   
+   export function computeInvoiceTotals(
+  ```

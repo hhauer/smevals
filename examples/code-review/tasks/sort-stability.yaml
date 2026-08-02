@@ -1,0 +1,254 @@
+name: sort-stability
+before: |
+  // leaderboard.ts
+  // Ranks player entries for the season leaderboard: highest score wins;
+  // ties are broken by fewest penalties (a player who reached the same
+  // score more cleanly ranks above one who needed penalty replays).
+
+  export interface Entry {
+    playerId: string;
+    displayName: string;
+    score: number;
+    penalties: number;
+  }
+
+  export interface RankedEntry extends Entry {
+    rank: number;
+  }
+
+  // Comparator for Array.prototype.sort: higher score first; among equal
+  // scores, fewer penalties first.
+  function compareEntries(a: Entry, b: Entry): number {
+    if (a.score !== b.score) {
+      return b.score - a.score;
+    }
+    return a.penalties - b.penalties;
+  }
+
+  // Sorts entries into leaderboard order and assigns dense ranks. Tied
+  // entries (equal score AND equal penalties) share a rank; the next
+  // distinct entry resumes at its position in the list, not its position
+  // plus one (standard competition ranking).
+  export function rankEntries(entries: Entry[]): RankedEntry[] {
+    const sorted = [...entries].sort(compareEntries);
+    const ranked: RankedEntry[] = [];
+
+    let rank = 0;
+    let previous: Entry | null = null;
+    sorted.forEach((entry, index) => {
+      const tied =
+        previous !== null &&
+        previous.score === entry.score &&
+        previous.penalties === entry.penalties;
+      if (!tied) {
+        rank = index + 1;
+      }
+      ranked.push({ ...entry, rank });
+      previous = entry;
+    });
+
+    return ranked;
+  }
+
+  // Returns the top N entries, or fewer if the leaderboard is smaller.
+  export function topN(entries: Entry[], n: number): RankedEntry[] {
+    return rankEntries(entries).slice(0, n);
+  }
+
+  // Formats a numeric rank as an ordinal string: 1 -> "1st", 2 -> "2nd",
+  // 3 -> "3rd", 11-13 -> "th" (the English ordinal exceptions).
+  export function formatRank(rank: number): string {
+    const remainder10 = rank % 10;
+    const remainder100 = rank % 100;
+    if (remainder100 >= 11 && remainder100 <= 13) {
+      return `${rank}th`;
+    }
+    switch (remainder10) {
+      case 1:
+        return `${rank}st`;
+      case 2:
+        return `${rank}nd`;
+      case 3:
+        return `${rank}rd`;
+      default:
+        return `${rank}th`;
+    }
+  }
+diff: |
+  --- a/leaderboard.ts
+  +++ b/leaderboard.ts
+  @@ -15,14 +15,18 @@
+   }
+   
+   // Comparator for Array.prototype.sort: higher score first; among equal
+  -// scores, fewer penalties first.
+  +// scores, fewer penalties first. A single combined expression avoids
+  +// branching on the common case where scores already differ.
+   function compareEntries(a: Entry, b: Entry): number {
+  -  if (a.score !== b.score) {
+  -    return b.score - a.score;
+  -  }
+  -  return a.penalties - b.penalties;
+  +  return b.score - a.score + (a.penalties - b.penalties);
+   }
+   
+  +// Two entries occupy the same standing when their score and penalty
+  +// count are both equal.
+  +function sameStanding(a: Entry, b: Entry): boolean {
+  +  return a.score === b.score && a.penalties === b.penalties;
+  +}
+  +
+   // Sorts entries into leaderboard order and assigns dense ranks. Tied
+   // entries (equal score AND equal penalties) share a rank; the next
+   // distinct entry resumes at its position in the list, not its position
+  @@ -34,10 +38,7 @@
+     let rank = 0;
+     let previous: Entry | null = null;
+     sorted.forEach((entry, index) => {
+  -    const tied =
+  -      previous !== null &&
+  -      previous.score === entry.score &&
+  -      previous.penalties === entry.penalties;
+  +    const tied = previous !== null && sameStanding(previous, entry);
+       if (!tied) {
+         rank = index + 1;
+       }
+prompt: |
+  You are reviewing a single commit to a TypeScript codebase.
+
+  Below is the complete pre-change file, followed by the commit's unified
+  diff. Review the commit as you would in a real code review: read the
+  diff in the context of the whole file, and report every defect you
+  find. Report only defects you are confident are real; do not pad your
+  review with speculative or stylistic nitpicks.
+
+  Reply with a single fenced ```json code block, and nothing else,
+  containing an object of exactly this shape: {"findings": [{"line": 42,
+  "description": "why this is wrong"}], "summary": "one-sentence summary
+  of the review"}. "findings" may contain zero or more entries.
+
+  Each finding's "line" must be an integer line number in the POST-change
+  file - the file as it exists after the diff is applied - not the
+  pre-change file below, and not the diff's own @@ line numbers.
+
+  ## Pre-change file: `leaderboard.ts`
+
+  ```typescript
+  // leaderboard.ts
+  // Ranks player entries for the season leaderboard: highest score wins;
+  // ties are broken by fewest penalties (a player who reached the same
+  // score more cleanly ranks above one who needed penalty replays).
+
+  export interface Entry {
+    playerId: string;
+    displayName: string;
+    score: number;
+    penalties: number;
+  }
+
+  export interface RankedEntry extends Entry {
+    rank: number;
+  }
+
+  // Comparator for Array.prototype.sort: higher score first; among equal
+  // scores, fewer penalties first.
+  function compareEntries(a: Entry, b: Entry): number {
+    if (a.score !== b.score) {
+      return b.score - a.score;
+    }
+    return a.penalties - b.penalties;
+  }
+
+  // Sorts entries into leaderboard order and assigns dense ranks. Tied
+  // entries (equal score AND equal penalties) share a rank; the next
+  // distinct entry resumes at its position in the list, not its position
+  // plus one (standard competition ranking).
+  export function rankEntries(entries: Entry[]): RankedEntry[] {
+    const sorted = [...entries].sort(compareEntries);
+    const ranked: RankedEntry[] = [];
+
+    let rank = 0;
+    let previous: Entry | null = null;
+    sorted.forEach((entry, index) => {
+      const tied =
+        previous !== null &&
+        previous.score === entry.score &&
+        previous.penalties === entry.penalties;
+      if (!tied) {
+        rank = index + 1;
+      }
+      ranked.push({ ...entry, rank });
+      previous = entry;
+    });
+
+    return ranked;
+  }
+
+  // Returns the top N entries, or fewer if the leaderboard is smaller.
+  export function topN(entries: Entry[], n: number): RankedEntry[] {
+    return rankEntries(entries).slice(0, n);
+  }
+
+  // Formats a numeric rank as an ordinal string: 1 -> "1st", 2 -> "2nd",
+  // 3 -> "3rd", 11-13 -> "th" (the English ordinal exceptions).
+  export function formatRank(rank: number): string {
+    const remainder10 = rank % 10;
+    const remainder100 = rank % 100;
+    if (remainder100 >= 11 && remainder100 <= 13) {
+      return `${rank}th`;
+    }
+    switch (remainder10) {
+      case 1:
+        return `${rank}st`;
+      case 2:
+        return `${rank}nd`;
+      case 3:
+        return `${rank}rd`;
+      default:
+        return `${rank}th`;
+    }
+  }
+  ```
+
+  ## Diff
+
+  ```diff
+  --- a/leaderboard.ts
+  +++ b/leaderboard.ts
+  @@ -15,14 +15,18 @@
+   }
+   
+   // Comparator for Array.prototype.sort: higher score first; among equal
+  -// scores, fewer penalties first.
+  +// scores, fewer penalties first. A single combined expression avoids
+  +// branching on the common case where scores already differ.
+   function compareEntries(a: Entry, b: Entry): number {
+  -  if (a.score !== b.score) {
+  -    return b.score - a.score;
+  -  }
+  -  return a.penalties - b.penalties;
+  +  return b.score - a.score + (a.penalties - b.penalties);
+   }
+   
+  +// Two entries occupy the same standing when their score and penalty
+  +// count are both equal.
+  +function sameStanding(a: Entry, b: Entry): boolean {
+  +  return a.score === b.score && a.penalties === b.penalties;
+  +}
+  +
+   // Sorts entries into leaderboard order and assigns dense ranks. Tied
+   // entries (equal score AND equal penalties) share a rank; the next
+   // distinct entry resumes at its position in the list, not its position
+  @@ -34,10 +38,7 @@
+     let rank = 0;
+     let previous: Entry | null = null;
+     sorted.forEach((entry, index) => {
+  -    const tied =
+  -      previous !== null &&
+  -      previous.score === entry.score &&
+  -      previous.penalties === entry.penalties;
+  +    const tied = previous !== null && sameStanding(previous, entry);
+       if (!tied) {
+         rank = index + 1;
+       }
+  ```

@@ -1,0 +1,9 @@
+{
+  "findings": [
+    {
+      "line": 37,
+      "description": "computePercentDiscountCents converts subtotalCents to a float dollar amount and back (subtotalCents / 100, then * 100 after rounding), introducing floating point rounding error that can make the discount off by a cent compared to the integer-cents math used everywhere else in this file."
+    }
+  ],
+  "summary": "One defect found in this commit; see the finding above."
+}

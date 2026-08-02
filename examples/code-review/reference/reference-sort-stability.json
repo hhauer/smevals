@@ -1,0 +1,9 @@
+{
+  "findings": [
+    {
+      "line": 21,
+      "description": "compareEntries now returns (b.score - a.score) + (a.penalties - b.penalties), combining two incomparable keys into a single number; when the penalty difference is large enough it can outweigh a small score difference on an entirely different scale, so a lower-scoring player can rank above a higher-scoring one and the documented penalties tie-break silently breaks."
+    }
+  ],
+  "summary": "One defect found in this commit; see the finding above."
+}

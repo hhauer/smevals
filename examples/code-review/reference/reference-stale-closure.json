@@ -1,0 +1,9 @@
+{
+  "findings": [
+    {
+      "line": 57,
+      "description": "scheduleRetryAttempt's closure reads `job` from the enclosing function scope; since the for-loop below reassigns that same shared `job` variable on every iteration before any scheduled callback actually fires, every retry ends up processing whichever job was assigned last, not the job it was scheduled for."
+    }
+  ],
+  "summary": "One defect found in this commit; see the finding above."
+}

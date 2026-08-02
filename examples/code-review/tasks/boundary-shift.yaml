@@ -1,0 +1,314 @@
+name: boundary-shift
+before: |
+  // pagination.ts
+  // Client for consuming a paginated REST endpoint that returns pages of
+  // `Item` records along with cursor metadata.
+
+  export interface Item {
+    id: string;
+    value: number;
+  }
+
+  export interface PageResponse {
+    items: Item[];
+    page: number;
+    totalPages: number;
+  }
+
+  export type PageFetcher = (page: number) => Promise<PageResponse>;
+
+  export interface FetchAllOptions {
+    startPage?: number;
+    maxPages?: number;
+  }
+
+  // Walks pages [startPage, totalPages) and returns every item collected.
+  export async function fetchAllItems(
+    fetchPage: PageFetcher,
+    options: FetchAllOptions = {}
+  ): Promise<Item[]> {
+    const startPage = options.startPage ?? 0;
+    const items: Item[] = [];
+    let page = startPage;
+    let totalPages = Infinity;
+    let pagesFetched = 0;
+
+    while (page < totalPages) {
+      if (options.maxPages !== undefined && pagesFetched >= options.maxPages) {
+        break;
+      }
+      const response = await fetchPage(page);
+      items.push(...response.items);
+      totalPages = response.totalPages;
+      pagesFetched += 1;
+      page += 1;
+    }
+
+    return items;
+  }
+
+  // Fetches a single page and reports whether more pages remain, for
+  // callers that want to stream results incrementally.
+  export async function fetchNextPage(
+    fetchPage: PageFetcher,
+    currentPage: number
+  ): Promise<{ items: Item[]; hasMore: boolean }> {
+    const response = await fetchPage(currentPage);
+    return {
+      items: response.items,
+      hasMore: currentPage + 1 < response.totalPages,
+    };
+  }
+
+  // Counts items across all pages without buffering them, for lightweight
+  // existence checks.
+  export async function countAllItems(
+    fetchPage: PageFetcher
+  ): Promise<number> {
+    let page = 0;
+    let totalPages = Infinity;
+    let count = 0;
+
+    while (page < totalPages) {
+      const response = await fetchPage(page);
+      count += response.items.length;
+      totalPages = response.totalPages;
+      page += 1;
+    }
+
+    return count;
+  }
+diff: |
+  --- a/pagination.ts
+  +++ b/pagination.ts
+  @@ -20,6 +20,13 @@
+     maxPages?: number;
+   }
+   
+  +// True while pageIndex still has data to fetch, given the total page
+  +// count reported by the server (pages are 0-indexed: valid pages are
+  +// [0, totalPageCount)).
+  +function hasPageToFetch(pageIndex: number, totalPageCount: number): boolean {
+  +  return pageIndex <= totalPageCount;
+  +}
+  +
+   // Walks pages [startPage, totalPages) and returns every item collected.
+   export async function fetchAllItems(
+     fetchPage: PageFetcher,
+  @@ -27,19 +34,19 @@
+   ): Promise<Item[]> {
+     const startPage = options.startPage ?? 0;
+     const items: Item[] = [];
+  -  let page = startPage;
+  -  let totalPages = Infinity;
+  +  let pageIndex = startPage;
+  +  let totalPageCount = Infinity;
+     let pagesFetched = 0;
+   
+  -  while (page < totalPages) {
+  +  while (hasPageToFetch(pageIndex, totalPageCount)) {
+       if (options.maxPages !== undefined && pagesFetched >= options.maxPages) {
+         break;
+       }
+  -    const response = await fetchPage(page);
+  +    const response = await fetchPage(pageIndex);
+       items.push(...response.items);
+  -    totalPages = response.totalPages;
+  +    totalPageCount = response.totalPages;
+       pagesFetched += 1;
+  -    page += 1;
+  +    pageIndex += 1;
+     }
+   
+     return items;
+  @@ -63,15 +70,15 @@
+   export async function countAllItems(
+     fetchPage: PageFetcher
+   ): Promise<number> {
+  -  let page = 0;
+  -  let totalPages = Infinity;
+  +  let pageIndex = 0;
+  +  let totalPageCount = Infinity;
+     let count = 0;
+   
+  -  while (page < totalPages) {
+  -    const response = await fetchPage(page);
+  +  while (hasPageToFetch(pageIndex, totalPageCount)) {
+  +    const response = await fetchPage(pageIndex);
+       count += response.items.length;
+  -    totalPages = response.totalPages;
+  -    page += 1;
+  +    totalPageCount = response.totalPages;
+  +    pageIndex += 1;
+     }
+   
+     return count;
+prompt: |
+  You are reviewing a single commit to a TypeScript codebase.
+
+  Below is the complete pre-change file, followed by the commit's unified
+  diff. Review the commit as you would in a real code review: read the
+  diff in the context of the whole file, and report every defect you
+  find. Report only defects you are confident are real; do not pad your
+  review with speculative or stylistic nitpicks.
+
+  Reply with a single fenced ```json code block, and nothing else,
+  containing an object of exactly this shape: {"findings": [{"line": 42,
+  "description": "why this is wrong"}], "summary": "one-sentence summary
+  of the review"}. "findings" may contain zero or more entries.
+
+  Each finding's "line" must be an integer line number in the POST-change
+  file - the file as it exists after the diff is applied - not the
+  pre-change file below, and not the diff's own @@ line numbers.
+
+  ## Pre-change file: `pagination.ts`
+
+  ```typescript
+  // pagination.ts
+  // Client for consuming a paginated REST endpoint that returns pages of
+  // `Item` records along with cursor metadata.
+
+  export interface Item {
+    id: string;
+    value: number;
+  }
+
+  export interface PageResponse {
+    items: Item[];
+    page: number;
+    totalPages: number;
+  }
+
+  export type PageFetcher = (page: number) => Promise<PageResponse>;
+
+  export interface FetchAllOptions {
+    startPage?: number;
+    maxPages?: number;
+  }
+
+  // Walks pages [startPage, totalPages) and returns every item collected.
+  export async function fetchAllItems(
+    fetchPage: PageFetcher,
+    options: FetchAllOptions = {}
+  ): Promise<Item[]> {
+    const startPage = options.startPage ?? 0;
+    const items: Item[] = [];
+    let page = startPage;
+    let totalPages = Infinity;
+    let pagesFetched = 0;
+
+    while (page < totalPages) {
+      if (options.maxPages !== undefined && pagesFetched >= options.maxPages) {
+        break;
+      }
+      const response = await fetchPage(page);
+      items.push(...response.items);
+      totalPages = response.totalPages;
+      pagesFetched += 1;
+      page += 1;
+    }
+
+    return items;
+  }
+
+  // Fetches a single page and reports whether more pages remain, for
+  // callers that want to stream results incrementally.
+  export async function fetchNextPage(
+    fetchPage: PageFetcher,
+    currentPage: number
+  ): Promise<{ items: Item[]; hasMore: boolean }> {
+    const response = await fetchPage(currentPage);
+    return {
+      items: response.items,
+      hasMore: currentPage + 1 < response.totalPages,
+    };
+  }
+
+  // Counts items across all pages without buffering them, for lightweight
+  // existence checks.
+  export async function countAllItems(
+    fetchPage: PageFetcher
+  ): Promise<number> {
+    let page = 0;
+    let totalPages = Infinity;
+    let count = 0;
+
+    while (page < totalPages) {
+      const response = await fetchPage(page);
+      count += response.items.length;
+      totalPages = response.totalPages;
+      page += 1;
+    }
+
+    return count;
+  }
+  ```
+
+  ## Diff
+
+  ```diff
+  --- a/pagination.ts
+  +++ b/pagination.ts
+  @@ -20,6 +20,13 @@
+     maxPages?: number;
+   }
+   
+  +// True while pageIndex still has data to fetch, given the total page
+  +// count reported by the server (pages are 0-indexed: valid pages are
+  +// [0, totalPageCount)).
+  +function hasPageToFetch(pageIndex: number, totalPageCount: number): boolean {
+  +  return pageIndex <= totalPageCount;
+  +}
+  +
+   // Walks pages [startPage, totalPages) and returns every item collected.
+   export async function fetchAllItems(
+     fetchPage: PageFetcher,
+  @@ -27,19 +34,19 @@
+   ): Promise<Item[]> {
+     const startPage = options.startPage ?? 0;
+     const items: Item[] = [];
+  -  let page = startPage;
+  -  let totalPages = Infinity;
+  +  let pageIndex = startPage;
+  +  let totalPageCount = Infinity;
+     let pagesFetched = 0;
+   
+  -  while (page < totalPages) {
+  +  while (hasPageToFetch(pageIndex, totalPageCount)) {
+       if (options.maxPages !== undefined && pagesFetched >= options.maxPages) {
+         break;
+       }
+  -    const response = await fetchPage(page);
+  +    const response = await fetchPage(pageIndex);
+       items.push(...response.items);
+  -    totalPages = response.totalPages;
+  +    totalPageCount = response.totalPages;
+       pagesFetched += 1;
+  -    page += 1;
+  +    pageIndex += 1;
+     }
+   
+     return items;
+  @@ -63,15 +70,15 @@
+   export async function countAllItems(
+     fetchPage: PageFetcher
+   ): Promise<number> {
+  -  let page = 0;
+  -  let totalPages = Infinity;
+  +  let pageIndex = 0;
+  +  let totalPageCount = Infinity;
+     let count = 0;
+   
+  -  while (page < totalPages) {
+  -    const response = await fetchPage(page);
+  +  while (hasPageToFetch(pageIndex, totalPageCount)) {
+  +    const response = await fetchPage(pageIndex);
+       count += response.items.length;
+  -    totalPages = response.totalPages;
+  -    page += 1;
+  +    totalPageCount = response.totalPages;
+  +    pageIndex += 1;
+     }
+   
+     return count;
+  ```

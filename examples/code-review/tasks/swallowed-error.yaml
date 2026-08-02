@@ -1,0 +1,252 @@
+name: swallowed-error
+before: |
+  // uploadPipeline.ts
+  // Uploads a batch of files in two phases per file: upload the bytes,
+  // then commit the upload so it becomes visible to readers. A file that
+  // uploads but never commits must be reported as failed - readers should
+  // never see a batch summary claim success for a file that isn't
+  // actually committed.
+
+  export interface FileUpload {
+    name: string;
+    bytes: Uint8Array;
+  }
+
+  export interface UploadResult {
+    name: string;
+    succeeded: boolean;
+    error?: string;
+  }
+
+  export interface BatchSummary {
+    results: UploadResult[];
+    succeededCount: number;
+    failedCount: number;
+  }
+
+  export type Uploader = (file: FileUpload) => Promise<string>; // returns an upload handle
+  export type Committer = (handle: string) => Promise<void>;
+
+  async function uploadAndCommit(
+    file: FileUpload,
+    upload: Uploader,
+    commit: Committer
+  ): Promise<UploadResult> {
+    let handle: string;
+    try {
+      handle = await upload(file);
+    } catch (err) {
+      return { name: file.name, succeeded: false, error: String(err) };
+    }
+
+    try {
+      await commit(handle);
+    } catch (err) {
+      return { name: file.name, succeeded: false, error: String(err) };
+    }
+
+    return { name: file.name, succeeded: true };
+  }
+
+  // Uploads every file, committing each in turn, and aggregates the
+  // outcomes into a batch summary.
+  export async function uploadBatch(
+    files: FileUpload[],
+    upload: Uploader,
+    commit: Committer
+  ): Promise<BatchSummary> {
+    const results: UploadResult[] = [];
+    for (const file of files) {
+      results.push(await uploadAndCommit(file, upload, commit));
+    }
+
+    const succeededCount = results.filter((r) => r.succeeded).length;
+    const failedCount = results.length - succeededCount;
+    return { results, succeededCount, failedCount };
+  }
+diff: |
+  --- a/uploadPipeline.ts
+  +++ b/uploadPipeline.ts
+  @@ -13,6 +13,7 @@
+   export interface UploadResult {
+     name: string;
+     succeeded: boolean;
+  +  // Present when either phase failed; the most recent error message.
+     error?: string;
+   }
+   
+  @@ -25,25 +26,33 @@
+   export type Uploader = (file: FileUpload) => Promise<string>; // returns an upload handle
+   export type Committer = (handle: string) => Promise<void>;
+   
+  +// Builds up the result for one file across both phases, so a commit
+  +// failure can be logged alongside the upload outcome instead of
+  +// discarding it in a second, differently-shaped early return.
+   async function uploadAndCommit(
+     file: FileUpload,
+     upload: Uploader,
+     commit: Committer
+   ): Promise<UploadResult> {
+  +  const result: UploadResult = { name: file.name, succeeded: false };
+  +
+     let handle: string;
+     try {
+       handle = await upload(file);
+     } catch (err) {
+  -    return { name: file.name, succeeded: false, error: String(err) };
+  +    result.error = String(err);
+  +    return result;
+     }
+   
+  +  result.succeeded = true;
+     try {
+       await commit(handle);
+     } catch (err) {
+  -    return { name: file.name, succeeded: false, error: String(err) };
+  +    console.warn(`commit failed for ${file.name}: ${err}`);
+  +    result.error = String(err);
+     }
+   
+  -  return { name: file.name, succeeded: true };
+  +  return result;
+   }
+   
+   // Uploads every file, committing each in turn, and aggregates the
+prompt: |
+  You are reviewing a single commit to a TypeScript codebase.
+
+  Below is the complete pre-change file, followed by the commit's unified
+  diff. Review the commit as you would in a real code review: read the
+  diff in the context of the whole file, and report every defect you
+  find. Report only defects you are confident are real; do not pad your
+  review with speculative or stylistic nitpicks.
+
+  Reply with a single fenced ```json code block, and nothing else,
+  containing an object of exactly this shape: {"findings": [{"line": 42,
+  "description": "why this is wrong"}], "summary": "one-sentence summary
+  of the review"}. "findings" may contain zero or more entries.
+
+  Each finding's "line" must be an integer line number in the POST-change
+  file - the file as it exists after the diff is applied - not the
+  pre-change file below, and not the diff's own @@ line numbers.
+
+  ## Pre-change file: `uploadPipeline.ts`
+
+  ```typescript
+  // uploadPipeline.ts
+  // Uploads a batch of files in two phases per file: upload the bytes,
+  // then commit the upload so it becomes visible to readers. A file that
+  // uploads but never commits must be reported as failed - readers should
+  // never see a batch summary claim success for a file that isn't
+  // actually committed.
+
+  export interface FileUpload {
+    name: string;
+    bytes: Uint8Array;
+  }
+
+  export interface UploadResult {
+    name: string;
+    succeeded: boolean;
+    error?: string;
+  }
+
+  export interface BatchSummary {
+    results: UploadResult[];
+    succeededCount: number;
+    failedCount: number;
+  }
+
+  export type Uploader = (file: FileUpload) => Promise<string>; // returns an upload handle
+  export type Committer = (handle: string) => Promise<void>;
+
+  async function uploadAndCommit(
+    file: FileUpload,
+    upload: Uploader,
+    commit: Committer
+  ): Promise<UploadResult> {
+    let handle: string;
+    try {
+      handle = await upload(file);
+    } catch (err) {
+      return { name: file.name, succeeded: false, error: String(err) };
+    }
+
+    try {
+      await commit(handle);
+    } catch (err) {
+      return { name: file.name, succeeded: false, error: String(err) };
+    }
+
+    return { name: file.name, succeeded: true };
+  }
+
+  // Uploads every file, committing each in turn, and aggregates the
+  // outcomes into a batch summary.
+  export async function uploadBatch(
+    files: FileUpload[],
+    upload: Uploader,
+    commit: Committer
+  ): Promise<BatchSummary> {
+    const results: UploadResult[] = [];
+    for (const file of files) {
+      results.push(await uploadAndCommit(file, upload, commit));
+    }
+
+    const succeededCount = results.filter((r) => r.succeeded).length;
+    const failedCount = results.length - succeededCount;
+    return { results, succeededCount, failedCount };
+  }
+  ```
+
+  ## Diff
+
+  ```diff
+  --- a/uploadPipeline.ts
+  +++ b/uploadPipeline.ts
+  @@ -13,6 +13,7 @@
+   export interface UploadResult {
+     name: string;
+     succeeded: boolean;
+  +  // Present when either phase failed; the most recent error message.
+     error?: string;
+   }
+   
+  @@ -25,25 +26,33 @@
+   export type Uploader = (file: FileUpload) => Promise<string>; // returns an upload handle
+   export type Committer = (handle: string) => Promise<void>;
+   
+  +// Builds up the result for one file across both phases, so a commit
+  +// failure can be logged alongside the upload outcome instead of
+  +// discarding it in a second, differently-shaped early return.
+   async function uploadAndCommit(
+     file: FileUpload,
+     upload: Uploader,
+     commit: Committer
+   ): Promise<UploadResult> {
+  +  const result: UploadResult = { name: file.name, succeeded: false };
+  +
+     let handle: string;
+     try {
+       handle = await upload(file);
+     } catch (err) {
+  -    return { name: file.name, succeeded: false, error: String(err) };
+  +    result.error = String(err);
+  +    return result;
+     }
+   
+  +  result.succeeded = true;
+     try {
+       await commit(handle);
+     } catch (err) {
+  -    return { name: file.name, succeeded: false, error: String(err) };
+  +    console.warn(`commit failed for ${file.name}: ${err}`);
+  +    result.error = String(err);
+     }
+   
+  -  return { name: file.name, succeeded: true };
+  +  return result;
+   }
+   
+   // Uploads every file, committing each in turn, and aggregates the
+  ```

@@ -1,0 +1,8 @@
+line: 52
+window: 2
+must_mention:
+- swallow\w*
+- never reset|not reset
+- succeeded (stays|remains|is still) true
+- commit fail\w*.*success|success.*commit fail
+- partial (success|result)

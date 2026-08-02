@@ -1,0 +1,8 @@
+line: 27
+window: 2
+must_mention:
+- off.?by.?one
+- boundary
+- <=
+- out.of.range|out.of.bounds
+- extra (page|iteration|request|fetch)

@@ -1,0 +1,300 @@
+name: stale-closure
+before: |
+  // retryQueue.ts - processes a batch of jobs; failures are retried once
+  // after a fixed backoff so a handful of flaky jobs don't block the batch.
+
+  export interface Job {
+    id: string;
+    run: () => Promise<void>;
+  }
+
+  export type Scheduler = (delayMs: number, callback: () => void) => void;
+
+  export interface RetryOptions {
+    maxAttempts: number;
+    baseDelayMs: number;
+    schedule: Scheduler;
+  }
+
+  export interface JobResult {
+    id: string;
+    attempts: number;
+    succeeded: boolean;
+  }
+
+  function attemptJob(job: Job): Promise<boolean> {
+    return job.run().then(
+      () => true,
+      () => false
+    );
+  }
+
+  // Runs every job once, then retries failures concurrently up to
+  // maxAttempts total, each after its own backoff delay.
+  export async function runWithRetries(
+    jobs: Job[],
+    options: RetryOptions
+  ): Promise<JobResult[]> {
+    const results = new Map<string, JobResult>();
+    let toRetry: Job[] = [];
+
+    for (const job of jobs) {
+      const succeeded = await attemptJob(job);
+      results.set(job.id, { id: job.id, attempts: 1, succeeded });
+      if (!succeeded) {
+        toRetry.push(job);
+      }
+    }
+
+    let attempt = 1;
+    while (toRetry.length > 0 && attempt < options.maxAttempts) {
+      attempt += 1;
+      const delay = options.baseDelayMs * 2 ** (attempt - 1);
+      const stillFailing: Job[] = [];
+
+      await Promise.all(
+        toRetry.map(
+          (job) =>
+            new Promise<void>((resolve) => {
+              options.schedule(delay, async () => {
+                const succeeded = await attemptJob(job);
+                results.set(job.id, { id: job.id, attempts: attempt, succeeded });
+                if (!succeeded) {
+                  stillFailing.push(job);
+                }
+                resolve();
+              });
+            })
+        )
+      );
+
+      toRetry = stillFailing;
+    }
+
+    return jobs.map((job) => results.get(job.id)!);
+  }
+
+  // Summarizes results for logging/metrics.
+  export function summarize(results: JobResult[]) {
+    const succeeded = results.filter((r) => r.succeeded).length;
+    const totalAttempts = results.reduce((sum, r) => sum + r.attempts, 0);
+    return { succeeded, failed: results.length - succeeded, totalAttempts };
+  }
+diff: |
+  --- a/retryQueue.ts
+  +++ b/retryQueue.ts
+  @@ -44,27 +44,37 @@
+       }
+     }
+   
+  +  let job: Job = jobs[0];
+  +
+  +  // Schedules one retry attempt for `job`.
+  +  const scheduleRetryAttempt = (
+  +    attempt: number,
+  +    delay: number,
+  +    stillFailing: Job[]
+  +  ): Promise<void> =>
+  +    new Promise<void>((resolve) => {
+  +      options.schedule(delay, async () => {
+  +        const succeeded = await attemptJob(job);
+  +        results.set(job.id, { id: job.id, attempts: attempt, succeeded });
+  +        if (!succeeded) {
+  +          stillFailing.push(job);
+  +        }
+  +        resolve();
+  +      });
+  +    });
+  +
+     let attempt = 1;
+     while (toRetry.length > 0 && attempt < options.maxAttempts) {
+       attempt += 1;
+       const delay = options.baseDelayMs * 2 ** (attempt - 1);
+       const stillFailing: Job[] = [];
+  +    const pending: Promise<void>[] = [];
+   
+  -    await Promise.all(
+  -      toRetry.map(
+  -        (job) =>
+  -          new Promise<void>((resolve) => {
+  -            options.schedule(delay, async () => {
+  -              const succeeded = await attemptJob(job);
+  -              results.set(job.id, { id: job.id, attempts: attempt, succeeded });
+  -              if (!succeeded) {
+  -                stillFailing.push(job);
+  -              }
+  -              resolve();
+  -            });
+  -          })
+  -      )
+  -    );
+  +    for (let i = 0; i < toRetry.length; i++) {
+  +      job = toRetry[i];
+  +      pending.push(scheduleRetryAttempt(attempt, delay, stillFailing));
+  +    }
+  +    await Promise.all(pending);
+   
+       toRetry = stillFailing;
+     }
+prompt: |
+  You are reviewing a single commit to a TypeScript codebase.
+
+  Below is the complete pre-change file, followed by the commit's unified
+  diff. Review the commit as you would in a real code review: read the
+  diff in the context of the whole file, and report every defect you
+  find. Report only defects you are confident are real; do not pad your
+  review with speculative or stylistic nitpicks.
+
+  Reply with a single fenced ```json code block, and nothing else,
+  containing an object of exactly this shape: {"findings": [{"line": 42,
+  "description": "why this is wrong"}], "summary": "one-sentence summary
+  of the review"}. "findings" may contain zero or more entries.
+
+  Each finding's "line" must be an integer line number in the POST-change
+  file - the file as it exists after the diff is applied - not the
+  pre-change file below, and not the diff's own @@ line numbers.
+
+  ## Pre-change file: `retryQueue.ts`
+
+  ```typescript
+  // retryQueue.ts - processes a batch of jobs; failures are retried once
+  // after a fixed backoff so a handful of flaky jobs don't block the batch.
+
+  export interface Job {
+    id: string;
+    run: () => Promise<void>;
+  }
+
+  export type Scheduler = (delayMs: number, callback: () => void) => void;
+
+  export interface RetryOptions {
+    maxAttempts: number;
+    baseDelayMs: number;
+    schedule: Scheduler;
+  }
+
+  export interface JobResult {
+    id: string;
+    attempts: number;
+    succeeded: boolean;
+  }
+
+  function attemptJob(job: Job): Promise<boolean> {
+    return job.run().then(
+      () => true,
+      () => false
+    );
+  }
+
+  // Runs every job once, then retries failures concurrently up to
+  // maxAttempts total, each after its own backoff delay.
+  export async function runWithRetries(
+    jobs: Job[],
+    options: RetryOptions
+  ): Promise<JobResult[]> {
+    const results = new Map<string, JobResult>();
+    let toRetry: Job[] = [];
+
+    for (const job of jobs) {
+      const succeeded = await attemptJob(job);
+      results.set(job.id, { id: job.id, attempts: 1, succeeded });
+      if (!succeeded) {
+        toRetry.push(job);
+      }
+    }
+
+    let attempt = 1;
+    while (toRetry.length > 0 && attempt < options.maxAttempts) {
+      attempt += 1;
+      const delay = options.baseDelayMs * 2 ** (attempt - 1);
+      const stillFailing: Job[] = [];
+
+      await Promise.all(
+        toRetry.map(
+          (job) =>
+            new Promise<void>((resolve) => {
+              options.schedule(delay, async () => {
+                const succeeded = await attemptJob(job);
+                results.set(job.id, { id: job.id, attempts: attempt, succeeded });
+                if (!succeeded) {
+                  stillFailing.push(job);
+                }
+                resolve();
+              });
+            })
+        )
+      );
+
+      toRetry = stillFailing;
+    }
+
+    return jobs.map((job) => results.get(job.id)!);
+  }
+
+  // Summarizes results for logging/metrics.
+  export function summarize(results: JobResult[]) {
+    const succeeded = results.filter((r) => r.succeeded).length;
+    const totalAttempts = results.reduce((sum, r) => sum + r.attempts, 0);
+    return { succeeded, failed: results.length - succeeded, totalAttempts };
+  }
+  ```
+
+  ## Diff
+
+  ```diff
+  --- a/retryQueue.ts
+  +++ b/retryQueue.ts
+  @@ -44,27 +44,37 @@
+       }
+     }
+   
+  +  let job: Job = jobs[0];
+  +
+  +  // Schedules one retry attempt for `job`.
+  +  const scheduleRetryAttempt = (
+  +    attempt: number,
+  +    delay: number,
+  +    stillFailing: Job[]
+  +  ): Promise<void> =>
+  +    new Promise<void>((resolve) => {
+  +      options.schedule(delay, async () => {
+  +        const succeeded = await attemptJob(job);
+  +        results.set(job.id, { id: job.id, attempts: attempt, succeeded });
+  +        if (!succeeded) {
+  +          stillFailing.push(job);
+  +        }
+  +        resolve();
+  +      });
+  +    });
+  +
+     let attempt = 1;
+     while (toRetry.length > 0 && attempt < options.maxAttempts) {
+       attempt += 1;
+       const delay = options.baseDelayMs * 2 ** (attempt - 1);
+       const stillFailing: Job[] = [];
+  +    const pending: Promise<void>[] = [];
+   
+  -    await Promise.all(
+  -      toRetry.map(
+  -        (job) =>
+  -          new Promise<void>((resolve) => {
+  -            options.schedule(delay, async () => {
+  -              const succeeded = await attemptJob(job);
+  -              results.set(job.id, { id: job.id, attempts: attempt, succeeded });
+  -              if (!succeeded) {
+  -                stillFailing.push(job);
+  -              }
+  -              resolve();
+  -            });
+  -          })
+  -      )
+  -    );
+  +    for (let i = 0; i < toRetry.length; i++) {
+  +      job = toRetry[i];
+  +      pending.push(scheduleRetryAttempt(attempt, delay, stillFailing));
+  +    }
+  +    await Promise.all(pending);
+   
+       toRetry = stillFailing;
+     }
+  ```

@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "line": 9,
+      "description": "score should be typed as a non-negative integer; the current `number` type allows fractional or negative scores that don't make sense for this leaderboard."
+    },
+    {
+      "line": 45,
+      "description": "ranked.push spreads `entry` before setting `rank`, so if Entry ever gains a `rank` field of its own it would silently be overwritten."
+    },
+    {
+      "line": 68,
+      "description": "formatRank's case for 2 doesn't handle negative ranks, which would produce a nonsensical ordinal string."
+    }
+  ],
+  "summary": "Several concerns with this commit."
+}

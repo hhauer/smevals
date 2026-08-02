@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "line": 9,
+      "description": "Scheduler's callback parameter should return a Promise so callers can await it directly instead of resolving a wrapper promise."
+    },
+    {
+      "line": 23,
+      "description": "attemptJob discards the original error object instead of rethrowing it, so callers can never inspect the failure cause."
+    },
+    {
+      "line": 88,
+      "description": "summarize's totalAttempts reduce doesn't handle an empty results array and will throw."
+    }
+  ],
+  "summary": "Several concerns with this commit."
+}
