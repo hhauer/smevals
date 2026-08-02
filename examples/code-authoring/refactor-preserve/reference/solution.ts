@@ -73,7 +73,7 @@ export function computeShippingCost(
     cost += pkg.declaredValue * 0.01;
   }
 
-  cost += REGIONAL_FEE_CENTS[pkg.region] ?? 0;
+  cost += Object.hasOwn(REGIONAL_FEE_CENTS, pkg.region) ? REGIONAL_FEE_CENTS[pkg.region] : 0;
 
   // Unguarded on purpose: an unweighed package (weightKg = NaN)
   // propagates NaN through the whole cost, matching the legacy
