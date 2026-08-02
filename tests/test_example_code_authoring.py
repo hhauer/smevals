@@ -251,3 +251,48 @@ export const cases = [
     assert proc.returncode != 0, "Expected non-zero exit code"
     assert result["score"] < 1.0, f"NaN should not equal null; score should be < 1.0, got {result['score']}"
     assert "fails_math" in result["tags"]
+
+
+def fixture_check(eval_name):
+    return {"cases": f"{eval_name}/tests/cases.ts"}
+
+
+def grade_fixture(tmp_path, eval_name, solution_filename):
+    run_dir, ws = make_run(tmp_path, "unused")
+    src = SUITE / eval_name / "reference" / solution_filename
+    (ws / "solution.ts").write_text(src.read_text())
+    return run_checker("run-tests", ws, run_dir, check=fixture_check(eval_name))
+
+
+@requires_node
+def test_interval_set_reference_scores_1(tmp_path):
+    proc, result = grade_fixture(tmp_path, "interval-set", "solution.ts")
+    assert result["score"] == 1.0, result["details"]
+    assert proc.returncode == 0
+
+
+@requires_node
+def test_interval_set_reference_typechecks(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    src = SUITE / "interval-set" / "reference" / "solution.ts"
+    (ws / "solution.ts").write_text(src.read_text())
+    proc, _ = run_checker("tsc-check", ws, run_dir, check={"typescript_version": "5.9"})
+    assert proc.returncode == 0
+
+
+@requires_node
+def test_interval_set_bug_merges_open_touching(tmp_path):
+    proc, result = grade_fixture(
+        tmp_path, "interval-set", "bug-merges-open-touching.ts"
+    )
+    assert result["score"] < 1.0
+    assert "fails_no_merge_open_touching" in result["tags"]
+
+
+@requires_node
+def test_interval_set_bug_remove_keeps_boundary(tmp_path):
+    proc, result = grade_fixture(
+        tmp_path, "interval-set", "bug-remove-keeps-boundary.ts"
+    )
+    assert result["score"] < 1.0
+    assert "fails_remove_splitting" in result["tags"]

@@ -1,0 +1,72 @@
+name: interval-set
+prompt: |
+  Implement a TypeScript module for sets of real numbers built from
+  intervals with mixed open/closed endpoints.
+
+  Reply with a single fenced TypeScript code block containing the
+  complete module. It must compile under `tsc --strict` with no
+  dependencies and no imports.
+
+  ## Wire format
+
+  Intervals cross the API as plain objects:
+
+      type Interval = {
+        lo: number | null;   // null means unbounded below
+        hi: number | null;   // null means unbounded above
+        loOpen: boolean;     // true: lo is excluded
+        hiOpen: boolean;     // true: hi is excluded
+      };
+
+  An unbounded side is always open: treat `lo: null` as loOpen true and
+  `hi: null` as hiOpen true regardless of the flag passed in.
+
+  ## Exports
+
+  Export the `Interval` type and a class `IntervalSet`:
+
+  - `constructor(intervals?: Interval[])` - starts from the given
+    intervals (added in order) or empty.
+  - `add(iv: Interval): void`
+  - `remove(iv: Interval): void`
+  - `contains(x: number): boolean` - is the point x in the set?
+  - `intersects(iv: Interval): boolean` - does iv share at least one
+    point with the set?
+  - `spans(): Interval[]` - the canonical representation, defined below.
+  - `union(other: IntervalSet): IntervalSet` - a new set; neither
+    operand is modified.
+  - `intersection(other: IntervalSet): IntervalSet` - a new set;
+    neither operand is modified.
+
+  ## Semantics
+
+  The set always behaves as the union of the intervals added minus the
+  intervals removed, applied in call order. `spans()` returns the
+  canonical form: sorted ascending, pairwise disjoint, and maximal -
+  two intervals that could be merged into one must be merged.
+
+  Merging rules follow from set semantics exactly:
+
+  - `[1,2]` then `[2,3]` yields one span `[1,3]` (they share the
+    point 2).
+  - `[1,2)` then `[2,3]` yields one span `[1,3]` (2 is covered by the
+    second interval and the reals in between by the first; no gap).
+  - `[1,2)` then `(2,3]` yields two spans - the point 2 belongs to
+    neither, so merging would wrongly add it.
+
+  Removal splits: removing `(2,3)` from `[1,4]` leaves `[1,2]` and
+  `[3,4]`. Removing `[2,3]` from `[1,4]` leaves `[1,2)` and `(3,4]`.
+
+  Degenerate intervals: `[5,5]` is the single point 5. `(5,5)`,
+  `[5,5)` and `(5,5]` are empty; adding or removing an empty interval
+  is a no-op, and empty intervals never appear in `spans()`.
+
+  Inputs may have `lo > hi`; such intervals are empty. Endpoint
+  numbers are finite; unboundedness is expressed only via null.
+
+  `contains` and `intersects` respect openness: for the set `{[1,2)}`,
+  `contains(2)` is false, and `[2,3]` does not intersect the set - the
+  point 2 is excluded from the set and no smaller point is in `[2,3]`.
+
+  `spans()` output for unbounded sides uses `lo: null`/`hi: null` with
+  the corresponding open flag true.

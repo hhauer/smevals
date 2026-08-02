@@ -1,0 +1,7 @@
+name: interval-set
+description: >-
+  Implement an interval-set library in TypeScript from a dense,
+  fully-specified spec. Edge-case minefield: mixed open/closed
+  endpoints, merging, splitting on removal, degenerate and unbounded
+  intervals. Graded by a hidden data-driven test suite plus a strict
+  tsc gate; a separate judge grader scores code quality.
