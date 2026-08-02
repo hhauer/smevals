@@ -598,6 +598,21 @@ def test_shotgun_fixture_scores_half(tmp_path, task_name):
 
 
 @pytest.mark.parametrize("task_name", TASK_NAMES)
+def test_shotgun_covers_every_changed_hunk(task_name):
+    """The fixture contract says shotgun flags every changed hunk, not
+    just some of them - nothing else enforces that, so check it here."""
+    task = load_task(task_name)
+    fixture = load_fixture("shotgun", task_name)
+    ranges = parse_hunk_post_ranges(task["diff"])
+    lines = [finding["line"] for finding in fixture["findings"]]
+    for start, end in ranges:
+        assert any(start <= line <= end for line in lines), (
+            f"{task_name} shotgun fixture has no finding in hunk "
+            f"[{start}, {end}]: finding lines are {lines}"
+        )
+
+
+@pytest.mark.parametrize("task_name", TASK_NAMES)
 def test_shotgun_descriptions_match_no_must_mention_pattern(task_name):
     """Proves the shotgun fixture's 0.5 score is earned honestly: its
     generic filler descriptions must not accidentally satisfy any

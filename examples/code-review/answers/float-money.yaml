@@ -5,4 +5,4 @@ must_mention:
 - floating.point
 - precision
 - rounding.error
-- cents
+- cents.*(dollar|float|round|precision)|dollar

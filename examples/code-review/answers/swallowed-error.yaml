@@ -1,5 +1,5 @@
-line: 52
-window: 2
+line: 50
+window: 3
 must_mention:
 - swallow\w*
 - never reset|not reset
