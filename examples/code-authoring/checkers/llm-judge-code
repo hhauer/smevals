@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Scores the extracted solution's code quality with an LLM via llm.
+The judge scores 0-10 and applies tags from a controlled vocabulary;
+results are normalized to the check result contract. Quality only -
+correctness is the default grader's job, and the rubric says so.
+"""
+
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+allowed_tags = json.loads(os.environ["SMEVALS_CHECK"]).get("tags")
+if allowed_tags:
+    tag_items = {"type": "string", "enum": allowed_tags}
+    tag_description = "every tag from the allowed list that is true of the code"
+else:
+    tag_items = {"type": "string"}
+    tag_description = "short snake_case tags for notable properties of the code"
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "score": {"type": "integer", "description": "the score, 0 to 10"},
+        "notes": {
+            "type": "string",
+            "description": "short explanation of the scoring",
+        },
+        "tags": {
+            "type": "array",
+            "items": tag_items,
+            "description": tag_description,
+        },
+    },
+    "required": ["score", "notes", "tags"],
+    "additionalProperties": False,
+}
+
+code = pathlib.Path(os.environ.get("SMEVALS_CHECK_FILE", "solution.ts")).read_text()
+prompt = f"{os.environ['SMEVALS_CHECK_RUBRIC']}\n\n```typescript\n{code}\n```"
+
+result = subprocess.run(
+    [
+        "llm",
+        "-m",
+        os.environ["SMEVALS_CHECK_MODEL"],
+        "--schema",
+        json.dumps(SCHEMA),
+        prompt,
+    ],
+    capture_output=True,
+    text=True,
+)
+if result.returncode != 0:
+    sys.exit(result.stderr.strip() or "llm call failed")
+judged = json.loads(result.stdout)
+
+with open("judge-log.json", "w") as fp:
+    subprocess.run(["llm", "logs", "-c", "--json"], stdout=fp, check=True)
+
+print(
+    json.dumps(
+        {
+            "score": judged["score"] / 10,
+            "tags": judged.get("tags") or [],
+            "notes": judged.get("notes", ""),
+            "details": {"raw_score": judged["score"]},
+        }
+    )
+)
