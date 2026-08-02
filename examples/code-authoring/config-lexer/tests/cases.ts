@@ -124,7 +124,7 @@ export const cases = [
     group: "string_escapes",
     name: "an escaped quote does not end the string",
     // Raw source (12 chars): " s a y sp \ " h i \ " " -> decodes to
-    // say "hi" (9 chars, with the escaped quotes literal).
+    // say "hi" (8 chars, with the escaped quotes literal).
     run: (m: any) => m.tokenize(String.raw`"say \"hi\""`),
     expect: [
       {

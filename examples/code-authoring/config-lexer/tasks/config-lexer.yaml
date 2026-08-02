@@ -57,8 +57,12 @@ prompt: |
   Test input is built entirely from: whitespace, ASCII letters, ASCII
   digits, underscore, the characters `# / * \ " '`, and the
   punctuation `= [ ] { } ,` below; inside string and comment content,
-  any Unicode character may appear literally. You will not be graded
-  on behavior for other characters.
+  any Unicode character may appear literally. Outside of that content,
+  `/` and `*` appear only as comment delimiters (`/*` and `*/`) -
+  never as a stray `*` or a `/` not immediately followed by `*` - and
+  `\` appears only inside double-quoted strings, starting an escape.
+  You will not be graded on behavior for other characters, or for
+  these characters in other placements.
 
   ## Identifiers
 
@@ -123,6 +127,9 @@ prompt: |
   `{}"` is reprocessed as ordinary source: a `{` punct token, a `}`
   punct token, then a new, separately-scanned string starting at the
   final `"` (which is itself unterminated, since nothing follows it).
+  This includes a newline immediately after the backslash: that is a
+  bad_escape whose resynchronization consumes the newline, not an
+  unterminated string.
 
   A double-quoted string may not contain a literal newline. If the
   scanner reaches the end of the line before the closing `"`, the
