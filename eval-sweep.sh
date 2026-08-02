@@ -25,9 +25,17 @@ MODELS=(
 )
 FAILURES=0
 
+# Local models load explicitly with a generous context length: JIT loads
+# default to an 8192-token budget, which thinking-heavy models exhaust on
+# reasoning before emitting anything (finish_reason: length, empty output).
+CONTEXT_LENGTH=32768
+
 for model in "${MODELS[@]}"; do
     echo "=============== model: $model ==============="
     "$LMS" unload --all
+    if [[ "$model" != gpt-5.6-* ]]; then
+        "$LMS" load "$model" -c "$CONTEXT_LENGTH" -y || { FAILURES=$((FAILURES+1)); continue; }
+    fi
     for eval in haiku markdown-tables code-authoring/interval-set code-authoring/usage-billing; do
         echo "--- $eval / $model ---"
         uv run smevals run "examples/$eval" -m "$model" -n 5 -g || FAILURES=$((FAILURES+1))
