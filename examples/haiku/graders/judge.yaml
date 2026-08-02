@@ -20,6 +20,3 @@ checks:
       structure; and up to 3 points for overall effect - a haiku that
       lands a surprising or resonant final line deserves them. Apply
       every tag from the allowed list that is true of the haiku.
-
-scoring:
-  pass_threshold: 0.5

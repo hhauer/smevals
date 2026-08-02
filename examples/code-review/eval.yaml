@@ -1,3 +1,7 @@
 name: code-review
 description: >-
-  Reviews a single commit to find one planted subtle defect.
+  Reviews a single synthetic commit (pre-change file + unified diff)
+  hiding exactly one subtle planted defect; six tasks across six
+  defect flavors. Deterministic grading by matching structured findings
+  against a per-task answer key (line window + mechanism regexes);
+  a separate judge grader scores explanation quality.

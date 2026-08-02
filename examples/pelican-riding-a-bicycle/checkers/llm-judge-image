@@ -5,6 +5,7 @@ descriptive tags; this checker normalizes to the check result contract:
 score 0.0-1.0, tags, notes, details. Full JSON schema with
 additionalProperties false - required by OpenAI strict structured output.
 """
+
 import json
 import os
 import subprocess
@@ -23,7 +24,12 @@ else:
 SCHEMA = {
     "type": "object",
     "properties": {
-        "score": {"type": "integer", "description": "the score, 0 to 10"},
+        "score": {
+            "type": "integer",
+            "description": "the score, 0 to 10",
+            "minimum": 0,
+            "maximum": 10,
+        },
         "notes": {
             "type": "string",
             "description": "short explanation of the scoring",
