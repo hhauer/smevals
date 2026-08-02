@@ -202,8 +202,6 @@ def test_parse_findings_negative_line_fails(tmp_path):
 
 def make_match_findings_env(tmp_path, answers_data):
     """Create a temporary answers directory with test-task.yaml."""
-    import yaml
-
     answers_dir = tmp_path / "answers"
     answers_dir.mkdir()
     (answers_dir / "test-task.yaml").write_text(yaml.dump(answers_data))
@@ -328,3 +326,53 @@ def test_match_findings_noisy_review(tmp_path):
     assert "found_planted" in result["tags"]
     assert "noisy_review" in result["tags"]
     assert result["metrics"]["false_positives"] == 4
+
+
+def test_match_findings_fallback_answers_dir(tmp_path):
+    """Tests fallback path when SMEVALS_CHECK_ANSWERS_DIR is not set.
+
+    The checker should read from <eval root>/answers/<task>.yaml,
+    which is examples/code-review/answers/<task>.yaml.
+    """
+    # Ensure answers directory exists
+    answers_dir = SUITE / "answers"
+    answers_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write a test answer file to the real answers directory
+    task_name = "pytest-fallback-task"
+    answer_file = answers_dir / f"{task_name}.yaml"
+    answers_data = {"line": 15, "window": 2, "must_mention": ["buffer"]}
+    answer_file.write_text(yaml.dump(answers_data))
+
+    try:
+        # Set up workspace and findings
+        ws = tmp_path / "grade"
+        ws.mkdir()
+        findings = [{"line": 16, "description": "buffer overflow vulnerability"}]
+        (ws / "findings.json").write_text(json.dumps({"findings": findings}))
+
+        # Run checker WITHOUT setting SMEVALS_CHECK_ANSWERS_DIR (use fallback)
+        env = os.environ.copy()
+        # Remove the env var if it exists to ensure fallback path is used
+        env.pop("SMEVALS_CHECK_ANSWERS_DIR", None)
+        env["SMEVALS_TASK"] = task_name
+
+        proc = subprocess.run(
+            [str(CHECKERS / "match-findings")],
+            cwd=ws,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        result = json.loads(proc.stdout) if proc.stdout.strip() else None
+
+        # Verify correct behavior using fallback path
+        assert proc.returncode == 0
+        assert result["score"] == 1.0
+        assert "found_planted" in result["tags"]
+        assert result["metrics"]["found_planted"] is True
+        assert result["metrics"]["false_positives"] == 0
+    finally:
+        # Clean up the test answer file
+        answer_file.unlink(missing_ok=True)
