@@ -25,6 +25,11 @@ function sortKeys(v) {
 const canon = (v) => JSON.stringify(sortKeys(v));
 
 const { cases } = await import(pathToFileURL(casesPath));
+
+// Emit total count first so the parent knows how many cases were meant to
+// run even if the solution import hangs or fails.
+emit({ total: cases.length });
+
 let solution;
 try {
   solution = await import(pathToFileURL(solutionPath));
@@ -32,9 +37,6 @@ try {
   emit({ importError: String(err) });
   process.exit(0);
 }
-
-// Emit total count first for timeout handling
-emit({ total: cases.length });
 
 for (const c of cases) {
   try {

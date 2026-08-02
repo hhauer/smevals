@@ -19,10 +19,16 @@ const child = spawnSync(
   { timeout: timeoutMs, encoding: "utf8" }
 );
 
-const events = (child.stdout ?? "")
-  .split("\n")
-  .filter((line) => line.trim())
-  .map((line) => JSON.parse(line));
+const events = [];
+for (const line of (child.stdout ?? "").split("\n")) {
+  if (!line.trim()) continue;
+  try {
+    events.push(JSON.parse(line));
+  } catch {
+    // A timeout kill can truncate the harness's last NDJSON line
+    // mid-write; skip it rather than crashing the checker.
+  }
+}
 
 const tags = [];
 const timedOut = child.signal === "SIGTERM" || child.signal === "SIGKILL";
@@ -37,7 +43,9 @@ if (!timedOut && !importError && child.status !== 0) {
   process.exit(1);
 }
 
-const totalEvent = events.find((e) => e.total);
+// Find by property presence, not truthiness: a legitimately announced
+// total of 0 must still be found.
+const totalEvent = events.find((e) => "total" in e);
 const announcedTotal = totalEvent?.total;
 
 const results = events.filter((e) => e.group);
@@ -46,9 +54,13 @@ for (const r of results) {
   (groups[r.group] ??= []).push(r);
 }
 const passed = results.filter((r) => r.pass).length;
-// Use announced total if available; timed-out runs are scored over all
-// cases (not just finished ones). An import error means zero cases ran.
-const total = importError ? 1 : (announcedTotal ?? results.length ?? 1);
+// The harness announces the total right after loading the cases module,
+// before it even tries the solution import, so it's available whether the
+// solution hangs, fails to import, or throws partway through. Prefer it
+// (timed-out and import-error runs are scored over the full case count,
+// not just however many finished); otherwise fall back to however many
+// cases actually finished, and never divide by zero.
+const total = announcedTotal > 0 ? announcedTotal : (results.length || 1);
 
 const metrics = { cases_passed: passed, cases_total: (announcedTotal ?? results.length) };
 for (const [group, rs] of Object.entries(groups)) {

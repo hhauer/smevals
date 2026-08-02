@@ -210,6 +210,31 @@ export const cases = [
 
 
 @requires_node
+def test_run_tests_hang_at_import_scores_zero(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    hang_cases = """
+export const cases = [
+  { group: "math", name: "doubles", run: (m: any) => m.double(2), expect: 4 },
+  { group: "math", name: "zero", run: (m: any) => m.double(0), expect: 0 },
+];
+"""
+    (tmp_path / "cases.ts").write_text(hang_cases)
+    rel = os.path.relpath(tmp_path / "cases.ts", SUITE)
+
+    (ws / "solution.ts").write_text(
+        "while (true) {}\n\n"
+        "export function double(x: number): number {\n"
+        "  return x * 2;\n"
+        "}\n"
+    )
+    proc, result = run_checker("run-tests", ws, run_dir, check={"cases": rel, "timeout_ms": 2000})
+    assert proc.returncode != 0
+    assert result["score"] == 0.0, f"Expected score 0.0 (not None), got {result['score']}"
+    assert "timeout" in result["tags"]
+    assert result["metrics"]["cases_total"] == 2, f"Expected cases_total=2, got {result['metrics']['cases_total']}"
+
+
+@requires_node
 def test_run_tests_group_named_like_reserved_key(tmp_path):
     run_dir, ws = make_run(tmp_path, "unused")
     reserved_group_cases = """
