@@ -15,6 +15,11 @@ function sortKeys(v) {
         .sort()
         .map((k) => [k, sortKeys(v[k])])
     );
+  if (typeof v === "number" && !isFinite(v)) {
+    if (Number.isNaN(v)) return "__NaN__";
+    if (v === Infinity) return "__Infinity__";
+    if (v === -Infinity) return "__-Infinity__";
+  }
   return v;
 }
 const canon = (v) => JSON.stringify(sortKeys(v));
@@ -27,6 +32,9 @@ try {
   emit({ importError: String(err) });
   process.exit(0);
 }
+
+// Emit total count first for timeout handling
+emit({ total: cases.length });
 
 for (const c of cases) {
   try {

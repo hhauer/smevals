@@ -184,3 +184,70 @@ def test_run_tests_unimportable_solution(tmp_path):
     assert proc.returncode != 0
     assert result["score"] == 0.0
     assert "import_error" in result["tags"]
+
+
+@requires_node
+def test_run_tests_timeout_scores_against_true_total(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    timeout_cases = """
+export const cases = [
+  { group: "main", name: "quick", run: (m: any) => m.quick(), expect: 1 },
+  { group: "main", name: "slow", run: (m: any) => { while (true) {} }, expect: 2 },
+  { group: "main", name: "second_quick", run: (m: any) => m.quick(), expect: 1 },
+];
+"""
+    (tmp_path / "cases.ts").write_text(timeout_cases)
+    rel = os.path.relpath(tmp_path / "cases.ts", SUITE)
+
+    (ws / "solution.ts").write_text(
+        "export function quick(): number { return 1; }\n"
+    )
+    proc, result = run_checker("run-tests", ws, run_dir, check={"cases": rel, "timeout_ms": 2000})
+    assert proc.returncode != 0
+    assert "timeout" in result["tags"]
+    assert result["metrics"]["cases_total"] == 3, f"Expected cases_total=3, got {result['metrics']['cases_total']}"
+    assert result["score"] < 1.0, f"Score should be < 1.0, got {result['score']}"
+
+
+@requires_node
+def test_run_tests_group_named_like_reserved_key(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    reserved_group_cases = """
+export const cases = [
+  { group: "cases_passed", name: "test1", run: (m: any) => m.double(2), expect: 4 },
+  { group: "cases_passed", name: "test2", run: (m: any) => m.double(3), expect: 6 },
+  { group: "normal", name: "test3", run: (m: any) => m.double(4), expect: 8 },
+];
+"""
+    (tmp_path / "cases.ts").write_text(reserved_group_cases)
+    rel = os.path.relpath(tmp_path / "cases.ts", SUITE)
+
+    (ws / "solution.ts").write_text(GOOD_TS)
+    proc, result = run_checker("run-tests", ws, run_dir, check={"cases": rel})
+    assert proc.returncode == 0
+    # metrics["cases_passed"] should still be the integer count
+    assert result["metrics"]["cases_passed"] == 3
+    # metrics["cases_total"] should still be the integer count
+    assert result["metrics"]["cases_total"] == 3
+    # metrics["group_cases_passed"] should be the boolean for the group
+    assert result["metrics"]["group_cases_passed"] is True
+    # metrics["normal"] should be the boolean for the normal group
+    assert result["metrics"]["normal"] is True
+
+
+@requires_node
+def test_run_tests_nan_does_not_equal_null(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    nan_cases = """
+export const cases = [
+  { group: "math", name: "nan_test", run: (m: any) => 0/0, expect: null },
+];
+"""
+    (tmp_path / "cases.ts").write_text(nan_cases)
+    rel = os.path.relpath(tmp_path / "cases.ts", SUITE)
+
+    (ws / "solution.ts").write_text("export function double(x: number): number { return x * 2; }\n")
+    proc, result = run_checker("run-tests", ws, run_dir, check={"cases": rel})
+    assert proc.returncode != 0, "Expected non-zero exit code"
+    assert result["score"] < 1.0, f"NaN should not equal null; score should be < 1.0, got {result['score']}"
+    assert "fails_math" in result["tags"]
