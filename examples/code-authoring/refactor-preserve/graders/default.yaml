@@ -1,0 +1,18 @@
+name: default
+checks:
+  # The final fenced module in the response becomes solution.ts
+  - checker: ../../checkers/extract-ts
+    creates: solution.ts
+    required: true
+
+  # Strict type-check with a pinned compiler; failing tsc fails the Grade
+  - checker: ../../checkers/tsc-check
+    typescript_version: "5.9"
+    required: true
+
+  # Hidden data-driven cases; score is the fraction passing
+  - checker: ../../checkers/run-tests
+    cases: refactor-preserve/tests/cases.ts
+
+scoring:
+  pass_threshold: 1.0

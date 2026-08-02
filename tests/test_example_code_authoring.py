@@ -278,6 +278,35 @@ export const cases = [
     assert "fails_math" in result["tags"]
 
 
+@requires_node
+def test_run_tests_exposes_solution_path_via_env(tmp_path):
+    """A case's run() must be able to locate the solution source file
+
+    (e.g. to read it for a source-inspection check) via
+    process.env.SMEVALS_SOLUTION, without hardcoding "solution.ts".
+    """
+    run_dir, ws = make_run(tmp_path, "unused")
+    env_cases = """
+export const cases = [
+  {
+    group: "env",
+    name: "SMEVALS_SOLUTION points at the resolved solution file",
+    run: (_m: any) =>
+      typeof process.env.SMEVALS_SOLUTION === "string" &&
+      process.env.SMEVALS_SOLUTION.endsWith("solution.ts"),
+    expect: true,
+  },
+];
+"""
+    (tmp_path / "cases.ts").write_text(env_cases)
+    rel = os.path.relpath(tmp_path / "cases.ts", SUITE)
+
+    (ws / "solution.ts").write_text(GOOD_TS)
+    proc, result = run_checker("run-tests", ws, run_dir, check={"cases": rel})
+    assert proc.returncode == 0, proc.stderr
+    assert result["score"] == 1.0, result["details"]
+
+
 def fixture_check(eval_name):
     return {"cases": f"{eval_name}/tests/cases.ts"}
 
@@ -367,9 +396,9 @@ CONFIG_LEXER_GROUPS = [
 ]
 
 
-def assert_fails_only(metrics, failing_group):
+def assert_fails_only(metrics, failing_group, groups=CONFIG_LEXER_GROUPS):
     """Every group metric is a bool; only failing_group should be False."""
-    for group in CONFIG_LEXER_GROUPS:
+    for group in groups:
         expected = group != failing_group
         assert (
             metrics[group] is expected
@@ -406,3 +435,51 @@ def test_config_lexer_bug_col_counts_utf16(tmp_path):
     assert result["score"] < 1.0
     assert "fails_positions" in result["tags"]
     assert_fails_only(result["metrics"], "positions")
+
+
+REFACTOR_PRESERVE_GROUPS = [
+    "core_paths",
+    "quirk_fallthrough",
+    "quirk_discount_order",
+    "quirk_nan",
+    "duplication",
+]
+
+
+@requires_node
+def test_refactor_preserve_reference_scores_1(tmp_path):
+    proc, result = grade_fixture(tmp_path, "refactor-preserve", "solution.ts")
+    assert result["score"] == 1.0, result["details"]
+    assert proc.returncode == 0
+
+
+@requires_node
+def test_refactor_preserve_reference_typechecks(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    src = SUITE / "refactor-preserve" / "reference" / "solution.ts"
+    (ws / "solution.ts").write_text(src.read_text())
+    proc, _ = run_checker("tsc-check", ws, run_dir, check={"typescript_version": "5.9"})
+    assert proc.returncode == 0
+
+
+@requires_node
+def test_refactor_preserve_bug_fixed_the_quirk(tmp_path):
+    # An otherwise-excellent refactor that "fixes" the fall-through
+    # must fail exactly quirk_fallthrough - proving the trap works.
+    proc, result = grade_fixture(
+        tmp_path, "refactor-preserve", "bug-fixed-the-quirk.ts"
+    )
+    assert result["score"] < 1.0
+    assert "fails_quirk_fallthrough" in result["tags"]
+    assert_fails_only(result["metrics"], "quirk_fallthrough", REFACTOR_PRESERVE_GROUPS)
+
+
+@requires_node
+def test_refactor_preserve_legacy_verbatim(tmp_path):
+    # The unrefactored original passes every behavior group (it IS the
+    # behavior every case was derived from) but fails duplication -
+    # proving a model cannot pass by parroting the input.
+    proc, result = grade_fixture(tmp_path, "refactor-preserve", "legacy-verbatim.ts")
+    assert result["score"] < 1.0
+    assert "fails_duplication" in result["tags"]
+    assert_fails_only(result["metrics"], "duplication", REFACTOR_PRESERVE_GROUPS)

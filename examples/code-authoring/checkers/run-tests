@@ -16,7 +16,7 @@ const timeoutMs = Number(process.env.SMEVALS_CHECK_TIMEOUT_MS ?? 30000);
 const child = spawnSync(
   process.execPath,
   [path.join(here, "ts-case-harness.mjs"), casesPath, solutionPath],
-  { timeout: timeoutMs, encoding: "utf8" }
+  { timeout: timeoutMs, encoding: "utf8", env: { ...process.env, SMEVALS_SOLUTION: solutionPath } }
 );
 
 const events = [];

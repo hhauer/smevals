@@ -1,0 +1,27 @@
+name: judge
+checks:
+  # Re-extract into this grader's own workspace
+  - checker: ../../checkers/extract-ts
+    creates: solution.ts
+    required: true
+
+  # Quality only; deliberately no tsc gate - a quality read on
+  # non-type-checking code is interesting when comparing graders.
+  - checker: ../../checkers/llm-judge-code
+    model: gpt-4.1
+    tags:
+      - idiomatic_types
+      - any_abuse
+      - dead_code
+      - clear_naming
+      - over_engineered
+    rubric: >-
+      Score this TypeScript module's code quality from 0 to 10. Judge
+      only quality - clarity, naming, idiomatic use of the type
+      system, economy of implementation - NOT whether the algorithm is
+      correct; correctness is measured elsewhere. Award up to 4 points
+      for clear structure and naming, up to 3 points for idiomatic,
+      precise types (no unnecessary any, no type assertions papering
+      over design problems), and up to 3 points for economy - no dead
+      code, no over-engineering. Apply every tag from the allowed list
+      that is true of the code.

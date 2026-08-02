@@ -1,0 +1,8 @@
+name: refactor-preserve
+description: >-
+  Refactor a deliberately awful ~90-line shipping-cost calculator
+  without changing its observable behavior, including three quirks
+  (a fall-through double fee, an order-dependent discount, a
+  NaN-propagating branch) pointed at by line number but not
+  explained. Hidden tests check ordinary behavior, each quirk, and
+  whether the tripled rate-table walk actually got deduplicated.

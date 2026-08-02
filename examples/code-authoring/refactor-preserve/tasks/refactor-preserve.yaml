@@ -1,0 +1,132 @@
+name: refactor-preserve
+prompt: |
+  Refactor the TypeScript module below. It works correctly but is
+  badly written: near-duplicated logic, unclear names, a dead branch,
+  and inconsistent style throughout. Rewrite it for quality -
+  restructure, rename, deduplicate, retype, whatever it takes.
+
+  The one hard constraint: for every input, the refactored module's
+  output must be identical to the original's, including anything that
+  looks like a bug. Three places are called out below because a
+  "quality" pass tends to accidentally change them - keep exactly what
+  they currently do; don't try to guess why they're written that way:
+
+    - lines 76-87 (the regional-fee switch statement)
+    - line 90 (the last line of computeShippingCost before its return)
+    - lines 95-99 (the whole applyDiscount function)
+
+  Keep the same export surface: a function
+  `computeShippingCost(pkg, express, fragile, insured)` and a function
+  `applyDiscount(costCents, pctOff, flatRebateCents)`, both with
+  exactly these parameters, in this order, meaning what they mean
+  below. `pkg` is always an object with exactly the fields `region`,
+  `weightKg`, and `declaredValue` shown in the `Package` type below -
+  keep those field names.
+
+  Reply with a single fenced TypeScript code block containing the
+  complete module. It must compile under `tsc --strict` with no
+  dependencies and no imports.
+
+  The module (line numbers above refer to this listing):
+
+  ```ts
+  export type Package = {
+    region: string;
+    weightKg: number;
+    declaredValue: number;
+  };
+
+  type Bracket = { upTo: number; rate: number };
+
+  // prettier-ignore
+  const groundRates: Bracket[] = [{ upTo: 1, rate: 500 }, { upTo: 5, rate: 350 }, { upTo: 20, rate: 275 }, { upTo: Infinity, rate: 220 }];
+  // prettier-ignore
+  const airRates: Bracket[] = [{ upTo: 1, rate: 900 }, { upTo: 5, rate: 650 }, { upTo: 20, rate: 500 }, { upTo: Infinity, rate: 420 }];
+  // prettier-ignore
+  const fragileFeeRates: Bracket[] = [{ upTo: 1, rate: 150 }, { upTo: 5, rate: 120 }, { upTo: 20, rate: 90 }, { upTo: Infinity, rate: 60 }];
+
+  const USE_LEGACY_ZONE_TABLE = false;
+  const WEIGHT_SURCHARGE_CENTS_PER_KG = 5;
+
+  function walkGroundRate(weightKg: number): number {
+    let total = 0;
+    for (let i = 0; i < groundRates.length; i++) {
+      const bracket = groundRates[i];
+      if (weightKg <= bracket.upTo) {
+        total = weightKg * bracket.rate;
+        break;
+      }
+    }
+    return total;
+  }
+
+  function walkAirRate(weightKg: number): number {
+    let total = 0;
+    for (let i = 0; i < airRates.length; i++) {
+      const bracket = airRates[i];
+      if (weightKg <= bracket.upTo) {
+        total = weightKg * bracket.rate;
+        break;
+      }
+    }
+    return total;
+  }
+
+  function computeInsuranceRate(weightKg: number): number {
+    let total = 0;
+    for (let i = 0; i < fragileFeeRates.length; i++) {
+      const bracket = fragileFeeRates[i];
+      if (weightKg <= bracket.upTo) {
+        total = weightKg * bracket.rate;
+        break;
+      }
+    }
+    return total;
+  }
+
+  export function computeShippingCost(
+    pkg: Package,
+    express: boolean,
+    fragile: boolean,
+    insured: boolean
+  ): number {
+    if (USE_LEGACY_ZONE_TABLE) {
+      return pkg.weightKg * 999;
+    }
+
+    let finalWeight = express ? walkAirRate(pkg.weightKg) : walkGroundRate(pkg.weightKg);
+
+    if (fragile) {
+      finalWeight += computeInsuranceRate(pkg.weightKg);
+    }
+
+    if (insured) {
+      finalWeight += pkg.declaredValue * 0.01;
+    }
+
+    let regionalFeeCents = 0;
+    switch (pkg.region) {
+      case "EU":
+        regionalFeeCents += 300;
+      case "APAC":
+        regionalFeeCents += 200;
+        break;
+      case "INTL":
+        regionalFeeCents += 400;
+        break;
+      default:
+        break;
+    }
+    finalWeight += regionalFeeCents;
+
+    finalWeight += pkg.weightKg * WEIGHT_SURCHARGE_CENTS_PER_KG;
+
+    return finalWeight;
+  }
+
+  export function applyDiscount(costCents: number, pctOff: number, flatRebateCents: number): number {
+    let discounted = costCents - costCents * pctOff;
+    discounted = discounted - flatRebateCents;
+    return discounted;
+  }
+  ```
