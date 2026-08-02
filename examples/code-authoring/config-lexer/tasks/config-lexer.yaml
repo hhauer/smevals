@@ -1,0 +1,202 @@
+name: config-lexer
+prompt: |
+  Implement a TypeScript module for tokenizing a small config
+  language.
+
+  Reply with a single fenced TypeScript code block containing the
+  complete module. It must compile under `tsc --strict` with no
+  dependencies and no imports.
+
+  ## Export
+
+  Export the `Token` type and a function:
+
+      export type Token =
+        | { kind: "identifier"; text: string; value: string; line: number; col: number }
+        | { kind: "int"; text: string; value: number; line: number; col: number }
+        | { kind: "string"; text: string; value: string; line: number; col: number }
+        | { kind: "punct"; text: string; value: string; line: number; col: number }
+        | {
+            kind: "error";
+            reason: "unterminated_string" | "bad_escape" | "unterminated_comment" | "bad_number";
+            line: number;
+            col: number;
+          };
+
+      export function tokenize(source: string): Token[];
+
+  `tokenize` never throws. Every problem in the input becomes an
+  `error` token with one of the four reasons above; tokenizing always
+  resumes afterward per the rules below and returns a complete array.
+  Note that `error` tokens carry no `text` or `value` field - only
+  `kind`, `reason`, `line`, `col`.
+
+  For every other kind, `text` is the exact slice of the source the
+  token consumed (for strings, including both quote characters), and
+  `value` is: the decoded content for `string` tokens, the numeric
+  value for `int` tokens, and exactly the same as `text` for
+  `identifier` and `punct` tokens.
+
+  `line` and `col` give the position of a token's first character.
+  Both are 1-based. `col` counts Unicode code points, not UTF-16 code
+  units: a character outside the Basic Multilingual Plane (e.g. an
+  emoji like 😀, U+1F600) is stored in a JavaScript string as a
+  two-unit surrogate pair, but it is exactly one column. A tab
+  character is also exactly one column (tokenize does not expand
+  tabs). A newline ends the current line: the character after it is
+  column 1 of the next line.
+
+  If the source begins with a byte-order mark (U+FEFF), skip it
+  without emitting a token and without it counting toward line or
+  column - the character that follows it is still line 1, column 1.
+  A BOM elsewhere in the source (there won't be one in graded input)
+  is not special.
+
+  Whitespace (space, tab, newline) and comments produce no tokens.
+
+  Test input is built entirely from: whitespace, ASCII letters, ASCII
+  digits, underscore, the characters `# / * \ " '`, and the
+  punctuation `= [ ] { } ,` below; inside string and comment content,
+  any Unicode character may appear literally. You will not be graded
+  on behavior for other characters.
+
+  ## Identifiers
+
+  `[A-Za-z_][A-Za-z0-9_]*` - a letter or underscore, then any run of
+  letters, digits, and underscores. `text` and `value` are both the
+  matched slice.
+
+  ## Integers
+
+  An integer literal starts at a digit. Consume the longest run of
+  characters matching `[A-Za-z0-9_]` from there - call this the
+  "alnum run" (it can include letters, which is how invalid numbers
+  like `12ab` get caught as one token instead of splitting into an int
+  and an identifier).
+
+  The run is a **valid** integer exactly when it is the single
+  character `0`, or matches `[1-9][0-9]*(_[0-9]+)*` - one or more
+  digits, optionally split into groups by single underscores, with no
+  leading zero, and no underscore at the start, at the end, or
+  doubled. On a valid run, emit an `int` token whose `value` is the
+  run with underscores removed, parsed as a decimal number, and whose
+  `text` is the run itself (underscores included).
+
+  If the run is **not** valid (a leading zero followed by more digits,
+  a misplaced or doubled underscore, or any letter mixed in), emit one
+  `error` token with `reason: "bad_number"`, positioned at the run's
+  first character, and resume tokenizing immediately after the run -
+  at the first character not matched by `[A-Za-z0-9_]`.
+
+  Worked example: `007 x` - the alnum run starting at the first `0` is
+  `007` (3 characters, stops at the space). It has a leading zero and
+  is longer than one character, so it is invalid: emit
+  `{kind:"error", reason:"bad_number", line:1, col:1}`, then resume at
+  column 4 (the space). The space is skipped as whitespace and `x`
+  becomes an ordinary identifier token at column 5. Result: two
+  tokens - the error, then the identifier `x`.
+
+  ## Double-quoted strings
+
+  Starts with `"`. Characters copy through to `value` literally except
+  for these escapes, each starting with `\`:
+
+  - `\n` - newline (U+000A)
+  - `\t` - tab (U+0009)
+  - `\\` - backslash
+  - `\"` - double quote
+  - `\u{H...H}` - the Unicode code point given by 1 to 6 hexadecimal
+    digits (`0-9`, `a-f`, `A-F`) inside the braces, decoded to that
+    one character. The digits must encode a code point from `0` to
+    `0x10FFFF`.
+
+  If `\` is followed by any character other than `n`, `t`, `\`, `"`,
+  or `u`, or if it is followed by `u` but what comes next does not
+  form a valid `\u{H...H}` escape (wrong bracing, a non-hex character,
+  zero or more than 6 hex digits, or a code point above `0x10FFFF`),
+  the whole string is invalid: emit one `error` token with
+  `reason: "bad_escape"`, positioned at the string's opening `"`, and
+  resume tokenizing immediately after the ONE character that follows
+  the backslash - even when that character was `u` and the malformed
+  part continues further. For example, in `"\u{}"` (zero hex digits
+  inside the braces), resume right after the `u`, so the following
+  `{}"` is reprocessed as ordinary source: a `{` punct token, a `}`
+  punct token, then a new, separately-scanned string starting at the
+  final `"` (which is itself unterminated, since nothing follows it).
+
+  A double-quoted string may not contain a literal newline. If the
+  scanner reaches the end of the line before the closing `"`, the
+  string is invalid: emit one `error` token with
+  `reason: "unterminated_string"`, positioned at the opening `"`, and
+  resume tokenizing AT the newline itself (it is not consumed by the
+  failed string, so it is processed normally afterward - the next line
+  starts fresh). If the scanner instead reaches end of input before
+  the closing `"` with no newline in between, the same
+  `unterminated_string` reason applies, positioned at the opening `"`;
+  there is nothing left to resynchronize to.
+
+  `text` for a valid string token is the raw source slice including
+  both quote characters.
+
+  ## Single-quoted raw strings
+
+  Starts with `'`. No backslash escapes - a `\` is a literal character
+  in `value`. The only special sequence is `''` (two single quotes in
+  a row), which contributes one literal `'` to `value` and does not
+  end the string; any other `'` closes the string. Unlike
+  double-quoted strings, a raw string may contain literal newlines.
+
+  If end of input is reached before an unescaped `'` closes the
+  string (including when the string ends with an unpaired `''` that
+  gets consumed as an escape, leaving nothing to close it), emit one
+  `error` token with `reason: "unterminated_string"`, positioned at
+  the opening `'`; there is nothing left to resynchronize to.
+
+  Worked example: `'it''s'` - after `it`, the `'` at position 4 is
+  followed by another `'`, so together they contribute a single `'`
+  to `value` and scanning continues; `s` follows, then a final `'`
+  (not followed by another `'`) closes the string. `value` is `it's`
+  (4 characters); `text` is the full 7-character slice `'it''s'`.
+
+  ## Comments
+
+  `#` starts a line comment that runs to (but does not include) the
+  end of the line, or to end of input. It produces no token.
+
+  `/*` starts a block comment. Block comments **nest**: each `/*`
+  inside one increases the nesting depth by one, and each `*/`
+  decreases it by one; the comment ends only when the depth returns to
+  0. A comment produces no token.
+
+  Worked example: `/* outer /* inner */ still-in-outer */ x` - the
+  inner `/*` brings the depth to 2; the first `*/` only brings it back
+  to 1 (still inside the outer comment), so `still-in-outer` is
+  comment content, not code; the second `*/` brings the depth to 0 and
+  closes the comment. The only token produced is the identifier `x`.
+
+  If a block comment's depth never returns to 0 before end of input,
+  emit one `error` token with `reason: "unterminated_comment"`,
+  positioned at the outermost `/*` that opened it; there is nothing
+  left to resynchronize to.
+
+  ## Punctuation
+
+  Exactly these six single-character tokens: `=`, `[`, `]`, `{`, `}`,
+  `,`. Each is a `punct` token whose `text` and `value` are that one
+  character.
+
+  ## Positions, worked example
+
+  Columns count code points. In `'😀' bar`, 😀 (U+1F600) is one code
+  point, so it occupies column 2 and the closing `'` is at column 3;
+  `bar` starts at column 5 (column 4 is the space) - even though 😀 is
+  two UTF-16 code units in the underlying JavaScript string. This
+  applies the same way inside double-quoted strings and comments: a
+  literal (non-escaped) astral character in the source is exactly one
+  column.
+
+  This is unrelated to how a `\u{...}` escape's decoded value is
+  counted: `"\u{1F600}"` is an 11-character SOURCE string (the two
+  quotes, backslash, `u`, `{`, four hex digits, `}`), so scanning it
+  advances the column by 11, even though it decodes to the
+  single-character `value` 😀.

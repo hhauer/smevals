@@ -353,3 +353,56 @@ def test_usage_billing_bug_credits_before_tax(tmp_path):
     proc, result = grade_fixture(tmp_path, "usage-billing", "bug-credits-before-tax.ts")
     assert result["score"] < 1.0
     assert "fails_credits" in result["tags"]
+
+
+CONFIG_LEXER_GROUPS = [
+    "basics",
+    "numbers",
+    "string_escapes",
+    "raw_strings",
+    "nested_comments",
+    "positions",
+    "error_recovery",
+    "eof_edges",
+]
+
+
+def assert_fails_only(metrics, failing_group):
+    """Every group metric is a bool; only failing_group should be False."""
+    for group in CONFIG_LEXER_GROUPS:
+        expected = group != failing_group
+        assert (
+            metrics[group] is expected
+        ), f"group {group!r}: expected metric {expected}, got {metrics.get(group)!r}"
+
+
+@requires_node
+def test_config_lexer_reference_scores_1(tmp_path):
+    proc, result = grade_fixture(tmp_path, "config-lexer", "solution.ts")
+    assert result["score"] == 1.0, result["details"]
+    assert proc.returncode == 0
+
+
+@requires_node
+def test_config_lexer_reference_typechecks(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    src = SUITE / "config-lexer" / "reference" / "solution.ts"
+    (ws / "solution.ts").write_text(src.read_text())
+    proc, _ = run_checker("tsc-check", ws, run_dir, check={"typescript_version": "5.9"})
+    assert proc.returncode == 0
+
+
+@requires_node
+def test_config_lexer_bug_comments_dont_nest(tmp_path):
+    proc, result = grade_fixture(tmp_path, "config-lexer", "bug-comments-dont-nest.ts")
+    assert result["score"] < 1.0
+    assert "fails_nested_comments" in result["tags"]
+    assert_fails_only(result["metrics"], "nested_comments")
+
+
+@requires_node
+def test_config_lexer_bug_col_counts_utf16(tmp_path):
+    proc, result = grade_fixture(tmp_path, "config-lexer", "bug-col-counts-utf16.ts")
+    assert result["score"] < 1.0
+    assert "fails_positions" in result["tags"]
+    assert_fails_only(result["metrics"], "positions")

@@ -1,0 +1,9 @@
+name: config-lexer
+description: >-
+  Implement a tokenizer for a small config language from a dense,
+  fully-specified spec. Edge-case minefield: code-point column
+  counting, nesting block comments, two string flavors with different
+  escape rules, and an error-token contract that demands specified
+  resynchronization instead of throwing. Graded by a hidden
+  data-driven test suite plus a strict tsc gate; a separate judge
+  grader scores code quality.
