@@ -627,6 +627,29 @@ def build(eval_paths, grader_name, site_dir):
 
 @cli.command()
 @click.argument(
+    "root",
+    metavar="[DIR]",
+    required=False,
+    default=Path("."),
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.option("-p", "--port", default=7002, show_default=True)
+def studio(root, port):
+    """Serve smevals Studio, a local environment for authoring Evals
+
+    DIR defaults to the current directory (Suite semantics identical to
+    serve's discovery: every Eval found under it appears on the shelf).
+    Binds 127.0.0.1 only, with no auth - Studio writes files and executes
+    Runners and Checkers, so it must never be exposed on the network.
+    """
+    from . import studio as studio_app
+
+    click.echo(f"Studio serving {root} on http://127.0.0.1:{port}")
+    studio_app.run_studio(root, port)
+
+
+@cli.command()
+@click.argument(
     "eval_path", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
 @click.option(
