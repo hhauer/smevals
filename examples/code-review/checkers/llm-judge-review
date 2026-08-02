@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Scores a model's code review explanation against the known planted defect.
+The judge scores 0-10 the review's explanation quality: precision of location,
+correctness of mechanism, and actionability. Uses the answer key as reference.
+"""
+
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+import yaml
+
+allowed_tags = json.loads(os.environ["SMEVALS_CHECK"]).get("tags")
+if allowed_tags:
+    tag_items = {"type": "string", "enum": allowed_tags}
+    tag_description = "every tag from the allowed list that is true of the review"
+else:
+    tag_items = {"type": "string"}
+    tag_description = "short snake_case tags for notable properties of the review"
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "score": {"type": "integer", "description": "the score, 0 to 10"},
+        "notes": {
+            "type": "string",
+            "description": "short explanation of the scoring",
+        },
+        "tags": {
+            "type": "array",
+            "items": tag_items,
+            "description": tag_description,
+        },
+    },
+    "required": ["score", "notes", "tags"],
+    "additionalProperties": False,
+}
+
+# Resolve answer key
+here = pathlib.Path(__file__).resolve()
+answers_dir = pathlib.Path(
+    os.environ.get("SMEVALS_CHECK_ANSWERS_DIR", here.parent.parent / "answers")
+)
+answer_key = yaml.safe_load(
+    (answers_dir / f"{os.environ['SMEVALS_TASK']}.yaml").read_text()
+)
+
+# Read the commit diff
+diff = os.environ["SMEVALS_TASK_DIFF"]
+
+# Read the reviewer's findings
+findings = json.loads(pathlib.Path("findings.json").read_text())
+
+# Embed answer key as YAML text
+answer_key_yaml = yaml.dump(answer_key, default_flow_style=False, sort_keys=False)
+
+# Assemble the prompt with three labeled sections
+prompt = f"""{os.environ['SMEVALS_CHECK_RUBRIC']}
+
+## The commit diff
+
+```diff
+{diff}
+```
+
+## The reviewer's findings
+
+```json
+{json.dumps(findings, indent=2)}
+```
+
+## The known planted defect (answer key)
+
+```yaml
+{answer_key_yaml}
+```
+"""
+
+result = subprocess.run(
+    [
+        "llm",
+        "-m",
+        os.environ["SMEVALS_CHECK_MODEL"],
+        "--schema",
+        json.dumps(SCHEMA),
+        prompt,
+    ],
+    capture_output=True,
+    text=True,
+)
+if result.returncode != 0:
+    sys.exit(result.stderr.strip() or "llm call failed")
+judged = json.loads(result.stdout)
+
+with open("judge-log.json", "w") as fp:
+    subprocess.run(["llm", "logs", "-c", "--json"], stdout=fp, check=True)
+
+print(
+    json.dumps(
+        {
+            "score": judged["score"] / 10,
+            "tags": judged.get("tags") or [],
+            "notes": judged.get("notes", ""),
+            "details": {"raw_score": judged["score"]},
+        }
+    )
+)

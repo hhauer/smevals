@@ -1,0 +1,30 @@
+name: judge
+checks:
+  # Extracts findings from the model's review response
+  - checker: ../checkers/parse-findings
+    creates: findings.json
+    required: true
+
+  # Scores the review's explanation quality against the known planted defect
+  - checker: ../checkers/llm-judge-review
+    model: gpt-4.1
+    rubric: |
+      Score 0-10 the review's explanation quality for the known planted defect.
+
+      Rubric:
+      - Perfect (9-10): Precise location, correct mechanism, actionable fix
+      - Good (7-8): Correct location/mechanism but lacks detail or precision
+      - Fair (5-6): Identifies the right area but mechanism is vague or incomplete
+      - Poor (1-4): Wrong location or mechanism, or very vague explanation
+      - Missed (0): Does not address the planted defect at all
+
+      Focus on: precision of location (line number accuracy), correctness of mechanism (why it's wrong), and actionability (could a developer fix it based on this review?).
+    tags:
+      - precise_location
+      - correct_mechanism
+      - suggests_fix
+      - vague
+      - wrong_mechanism
+
+scoring:
+  pass_threshold: 0.7
