@@ -1,0 +1,101 @@
+name: usage-billing
+prompt: |
+  Implement a TypeScript module that computes an invoice for one
+  billing period of a metered subscription.
+
+  Reply with a single fenced TypeScript code block containing the
+  complete module. It must compile under `tsc --strict` with no
+  dependencies and no imports.
+
+  ## Types and export
+
+  Export exactly this function and these types:
+
+      export type Tier = {
+        upTo: number | null;     // cumulative units, inclusive; null = unlimited
+        centsPerUnit: number;    // may be fractional, e.g. 0.25
+      };
+
+      export type Plan = {
+        code: string;
+        baseCents: number;       // integer cents per full period
+        tiers: Tier[];           // ascending upTo, last is null
+      };
+
+      export type InvoiceInput = {
+        periodStart: string;     // "YYYY-MM-DD", inclusive
+        periodEnd: string;       // "YYYY-MM-DD", exclusive
+        segments: {
+          startsOn: string;      // "YYYY-MM-DD"
+          plan: Plan;
+        }[];                     // ascending startsOn; first <= periodStart
+        usage: {
+          at: string;            // ISO 8601 UTC, e.g. "2026-03-07T09:30:00Z"
+          units: number;         // non-negative integer
+        }[];
+        credits: {
+          cents: number;         // integer, positive
+          expiresOn: string;     // "YYYY-MM-DD"
+        }[];
+        taxRate: number;         // e.g. 0.0875
+      };
+
+      export type Line = {
+        kind: "base" | "usage";
+        planCode: string;
+        cents: number;           // integer
+      };
+
+      export type Invoice = {
+        lines: Line[];
+        subtotalCents: number;
+        taxCents: number;
+        totalCents: number;
+        creditAppliedCents: number;
+        amountDueCents: number;
+      };
+
+      export function computeInvoice(input: InvoiceInput): Invoice;
+
+  ## Rules
+
+  Dates are calendar days in UTC. A day D is "in the period" when
+  periodStart <= D < periodEnd. The plan active on day D is the plan
+  of the last segment whose startsOn is on or before D - so on the day
+  a plan change takes effect, the NEW plan is active.
+
+  Base fees are prorated by calendar days. For each segment that is
+  active for at least one day of the period, emit one base line:
+  baseCents multiplied by (days the segment is active in the period)
+  divided by (total days in the period), rounded half-up to integer
+  cents. Base lines appear in segment order.
+
+  A usage record belongs to the period when periodStart <= at <
+  periodEnd, comparing instants (periodStart and periodEnd are
+  midnight UTC). A record at exactly midnight of periodEnd is out. A
+  record is priced by the plan active on its calendar day.
+
+  For each plan segment with at least one in-period usage record, emit
+  one usage line after all base lines, in segment order. Price the
+  segment's total units on the segment plan's graduated tiers: the
+  first tier covers cumulative units up to AND INCLUDING its upTo, the
+  next tier covers the units above that, and so on. Tier progression
+  is tracked per segment - each segment's usage starts again at the
+  first tier. Sum units-times-centsPerUnit across tiers exactly (no
+  rounding), then round the segment's usage total half-up to integer
+  cents. That per-line rounding and the tax rounding below are the
+  ONLY two roundings anywhere.
+
+  subtotalCents is the sum of all lines. taxCents is subtotalCents
+  times taxRate, rounded half-up. totalCents = subtotalCents +
+  taxCents.
+
+  Credits apply AFTER tax. A credit is usable when its expiresOn is on
+  or after periodEnd. Apply usable credits in order of earliest
+  expiresOn first, breaking ties by larger cents first, each up to the
+  remaining balance, stopping at zero. creditAppliedCents is the total
+  applied; amountDueCents = totalCents - creditAppliedCents and is
+  never negative.
+
+  Round half-up means: 0.5 rounds away from zero (all amounts here are
+  non-negative, so upward). Half-up rounding of x is floor(x + 0.5).

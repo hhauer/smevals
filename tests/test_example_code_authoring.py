@@ -296,3 +296,35 @@ def test_interval_set_bug_remove_keeps_boundary(tmp_path):
     )
     assert result["score"] < 1.0
     assert "fails_remove_splitting" in result["tags"]
+
+
+@requires_node
+def test_usage_billing_reference_scores_1(tmp_path):
+    proc, result = grade_fixture(tmp_path, "usage-billing", "solution.ts")
+    assert result["score"] == 1.0, result["details"]
+    assert proc.returncode == 0
+
+
+@requires_node
+def test_usage_billing_reference_typechecks(tmp_path):
+    run_dir, ws = make_run(tmp_path, "unused")
+    src = SUITE / "usage-billing" / "reference" / "solution.ts"
+    (ws / "solution.ts").write_text(src.read_text())
+    proc, _ = run_checker("tsc-check", ws, run_dir, check={"typescript_version": "5.9"})
+    assert proc.returncode == 0
+
+
+@requires_node
+def test_usage_billing_bug_exclusive_tier_bound(tmp_path):
+    proc, result = grade_fixture(
+        tmp_path, "usage-billing", "bug-exclusive-tier-bound.ts"
+    )
+    assert result["score"] < 1.0
+    assert "fails_tier_bounds" in result["tags"]
+
+
+@requires_node
+def test_usage_billing_bug_credits_before_tax(tmp_path):
+    proc, result = grade_fixture(tmp_path, "usage-billing", "bug-credits-before-tax.ts")
+    assert result["score"] < 1.0
+    assert "fails_credits" in result["tags"]

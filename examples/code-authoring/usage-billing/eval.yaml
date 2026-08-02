@@ -1,0 +1,8 @@
+name: usage-billing
+description: >-
+  Implement an invoice calculator in TypeScript from a precise spec
+  full of skim-punishers: inclusive tier bounds, calendar-day
+  proration, rounding at exactly two points, boundary-exact period
+  filtering, credits after tax in a specified order. Every hidden test
+  case targets one rule, so per-group metrics name the rule a model
+  skimmed.
