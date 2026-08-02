@@ -258,6 +258,81 @@ class TestValidateEval:
         assert len(matches) == 1
         assert "not executable" in matches[0]["problem"]
 
+    # -- malformed YAML: legal YAML, wrong type, must not crash --------
+
+    def test_config_runner_non_string_does_not_crash(self, make_eval):
+        # A mid-edit flow list (`runner: [../run-llm]`) is legal YAML but
+        # not a usable path - must be reported, not raise TypeError.
+        eval_dir = make_eval(
+            configs={"default": {"runner": ["../run-llm"], "model": "m"}}
+        )
+
+        problems = validate_eval(eval_dir)
+        matches = [
+            p
+            for p in problems
+            if p["file"] == "configs/default.yaml" and p["path"] == "runner"
+        ]
+        assert len(matches) == 1
+        assert "must be a string" in matches[0]["problem"]
+        assert "list" in matches[0]["problem"]
+
+    def test_grader_checker_non_string_list_does_not_crash(self, make_eval):
+        eval_dir = make_eval(graders={"default": {"checks": [{"checker": ["a", "b"]}]}})
+
+        problems = validate_eval(eval_dir)
+        matches = [
+            p
+            for p in problems
+            if p["file"] == "graders/default.yaml" and p["path"] == "checks.0.checker"
+        ]
+        assert len(matches) == 1
+        assert "must be a string" in matches[0]["problem"]
+        assert "list" in matches[0]["problem"]
+
+    def test_grader_checker_non_string_int_does_not_crash(self, make_eval):
+        eval_dir = make_eval(graders={"default": {"checks": [{"checker": 42}]}})
+
+        problems = validate_eval(eval_dir)
+        matches = [
+            p
+            for p in problems
+            if p["file"] == "graders/default.yaml" and p["path"] == "checks.0.checker"
+        ]
+        assert len(matches) == 1
+        assert "must be a string" in matches[0]["problem"]
+        assert "int" in matches[0]["problem"]
+
+    def test_grader_checker_non_string_bool_does_not_crash(self, make_eval):
+        eval_dir = make_eval(graders={"default": {"checks": [{"checker": True}]}})
+
+        problems = validate_eval(eval_dir)
+        matches = [
+            p
+            for p in problems
+            if p["file"] == "graders/default.yaml" and p["path"] == "checks.0.checker"
+        ]
+        assert len(matches) == 1
+        assert "must be a string" in matches[0]["problem"]
+
+    def test_task_name_non_string_does_not_crash(self, make_eval):
+        # A list-typed name must not reach the duplicate-name dict lookup,
+        # which requires hashable keys.
+        eval_dir = make_eval(
+            tasks={
+                "a": {"name": ["x", "y"], "prompt": "hi"},
+                "b": {"prompt": "hey"},
+            }
+        )
+
+        problems = validate_eval(eval_dir)
+        matches = [
+            p for p in problems if p["file"] == "tasks/a.yaml" and p["path"] == "name"
+        ]
+        assert len(matches) == 1
+        assert "must be a string" in matches[0]["problem"]
+        assert "list" in matches[0]["problem"]
+
     def test_bad_pass_threshold_out_of_range(self, make_eval):
         eval_dir = make_eval(
             graders={

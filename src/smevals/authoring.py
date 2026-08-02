@@ -95,18 +95,34 @@ def parse_yaml(path):
     return doc if isinstance(doc, dict) else {}, None
 
 
-def missing_key_problem(doc, path, eval_dir, key):
-    if not doc.get(key):
+def string_field_problems(doc, path, eval_dir, key):
+    """A key that must be a string when present: reports missing or wrong-type.
+
+    Runners can leave a value mid-edit as legal-but-wrong YAML (a flow list,
+    a bare number) - report it as a problem rather than crash on the
+    string-only operations (path joins, dict-key hashing) done downstream.
+    """
+    value = doc.get(key)
+    if not value:
         return [problem(path, eval_dir, key, f"missing required key: {key}")]
+    if not isinstance(value, str):
+        return [
+            problem(
+                path,
+                eval_dir,
+                key,
+                f"{key} must be a string, got {type(value).__name__}",
+            )
+        ]
     return []
 
 
 def validate_eval_doc(path, eval_dir, doc):
-    return missing_key_problem(doc, path, eval_dir, "name")
+    return string_field_problems(doc, path, eval_dir, "name")
 
 
 def validate_task_doc(path, eval_dir, doc):
-    problems = missing_key_problem(doc, path, eval_dir, "name")
+    problems = string_field_problems(doc, path, eval_dir, "name")
     if not doc.get("prompt"):
         # Not every Task is a single prompt (some carry other data instead),
         # so a missing prompt is a nudge, not an error
@@ -122,10 +138,11 @@ def validate_task_doc(path, eval_dir, doc):
 
 
 def validate_config_doc(path, eval_dir, doc):
-    problems = missing_key_problem(doc, path, eval_dir, "name")
-    problems += missing_key_problem(doc, path, eval_dir, "runner")
+    problems = string_field_problems(doc, path, eval_dir, "name")
+    runner_problems = string_field_problems(doc, path, eval_dir, "runner")
+    problems += runner_problems
     runner = doc.get("runner")
-    if runner:
+    if runner and not runner_problems:
         resolved = (path.parent / runner).resolve()
         if not resolved.is_file():
             problems.append(
@@ -148,6 +165,15 @@ def validate_check(path, eval_dir, index, check):
     checker = check.get("checker") if isinstance(check, dict) else None
     if not checker:
         return [problem(path, eval_dir, key_path, "missing required key: checker")]
+    if not isinstance(checker, str):
+        return [
+            problem(
+                path,
+                eval_dir,
+                key_path,
+                f"checker must be a string, got {type(checker).__name__}",
+            )
+        ]
     if checker in BUILTIN_CHECKERS:
         return []
     resolved = (path.parent / checker).resolve()
@@ -168,7 +194,7 @@ def validate_check(path, eval_dir, index, check):
 
 
 def validate_grader_doc(path, eval_dir, doc):
-    problems = missing_key_problem(doc, path, eval_dir, "name")
+    problems = string_field_problems(doc, path, eval_dir, "name")
     checks = doc.get("checks")
     if not isinstance(checks, list) or not checks:
         problems.append(
@@ -229,7 +255,9 @@ def validate_kind(eval_dir, kind):
             problems.append(problem(path, eval_dir, "", f"invalid YAML: {error}"))
             continue
         problems += KIND_VALIDATORS[kind](path, eval_dir, doc)
-        if doc.get("name"):
+        # A wrong-type name already got its own problem above; duplicate
+        # detection needs a hashable, comparable name to mean anything
+        if isinstance(doc.get("name"), str) and doc["name"]:
             named.append((path, doc["name"]))
     problems += duplicate_name_problems(eval_dir, kind, named)
     return problems
