@@ -1,0 +1,12 @@
+name: default
+checks:
+  # Extracts findings from the model's review response
+  - checker: ../checkers/parse-findings
+    creates: findings.json
+    required: true
+
+  # Grades the parsed findings against the task's answer key
+  - checker: ../checkers/match-findings
+
+scoring:
+  pass_threshold: 1.0

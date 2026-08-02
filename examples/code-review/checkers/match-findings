@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+# Grades a parsed review against the task's planted-defect answer key.
+# Found = line within +/-window AND description matches one must_mention
+# regex. Line-only match earns 0.5 (right place, wrong diagnosis).
+import json
+import os
+import pathlib
+import re
+import sys
+
+import yaml
+
+here = pathlib.Path(__file__).resolve()
+answers_dir = pathlib.Path(
+    os.environ.get("SMEVALS_CHECK_ANSWERS_DIR", here.parent.parent / "answers")
+)
+answer = yaml.safe_load(
+    (answers_dir / f"{os.environ['SMEVALS_TASK']}.yaml").read_text()
+)
+findings = json.loads(pathlib.Path("findings.json").read_text())["findings"]
+
+line, window = answer["line"], answer["window"]
+patterns = [re.compile(p, re.IGNORECASE) for p in answer["must_mention"]]
+
+best = 0.0
+false_positives = 0
+for finding in findings:
+    if abs(finding["line"] - line) <= window:
+        mentioned = any(p.search(finding["description"]) for p in patterns)
+        best = max(best, 1.0 if mentioned else 0.5)
+    else:
+        false_positives += 1
+
+tags = []
+if best == 1.0:
+    tags.append("found_planted")
+elif best == 0.5:
+    tags.append("right_line_wrong_diagnosis")
+else:
+    tags.append("missed_planted")
+if false_positives > 3:
+    tags.append("noisy_review")
+if not findings:
+    tags.append("silent_pass")
+
+print(
+    json.dumps(
+        {
+            "score": best,
+            "metrics": {
+                "found_planted": best == 1.0,
+                "false_positives": false_positives,
+                "findings_total": len(findings),
+            },
+            "tags": tags,
+            "notes": f"planted@{line}±{window}: best={best}, {false_positives} false positive(s)",
+        }
+    )
+)
+sys.exit(0 if best == 1.0 else 1)
