@@ -1,0 +1,3 @@
+name: code-review
+description: >-
+  Reviews a single commit to find one planted subtle defect.

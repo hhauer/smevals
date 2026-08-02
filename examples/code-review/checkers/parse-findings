@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+# Checker contract: see suite siblings. Extracts the model's review
+# findings JSON. Prefers the last ```json fence; falls back to the last
+# top-level {...} slice that parses and carries a findings array.
+# Validation is strict: a review that cannot be parsed cannot be graded.
+import json
+import os
+import pathlib
+import re
+import sys
+
+text = (pathlib.Path(os.environ["SMEVALS_RUN_DIR"]) / "output.txt").read_text()
+target = os.environ.get("SMEVALS_CHECK_CREATES", "findings.json")
+
+candidates = re.findall(r"```json[ \t]*\n(.*?)```", text, re.DOTALL)
+if not candidates:
+    # Last-resort: every top-level brace slice, right-to-left
+    candidates = re.findall(r"\{.*\}", text, re.DOTALL)
+
+obj = None
+for chunk in reversed(candidates):
+    try:
+        parsed = json.loads(chunk)
+    except json.JSONDecodeError:
+        continue
+    if isinstance(parsed, dict) and isinstance(parsed.get("findings"), list):
+        obj = parsed
+        break
+if obj is None:
+    sys.exit("no findings JSON object found in output.txt")
+
+for finding in obj["findings"]:
+    if (
+        not isinstance(finding, dict)
+        or not isinstance(finding.get("line"), int)
+        or finding["line"] < 1
+        or not isinstance(finding.get("description"), str)
+        or not finding["description"].strip()
+    ):
+        sys.exit(f"malformed finding: {finding!r}")
+
+pathlib.Path(target).write_text(json.dumps(obj, indent=2))
+print(json.dumps({"notes": f"{len(obj['findings'])} finding(s) parsed"}))
