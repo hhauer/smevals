@@ -7,17 +7,12 @@ smevals grade would.
 import json
 import os
 import pathlib
-import shutil
 import subprocess
 
 import pytest
 
 SUITE = pathlib.Path(__file__).parent.parent / "examples" / "code-review"
 CHECKERS = SUITE / "checkers"
-
-requires_node = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not on PATH"
-)
 
 
 def run_checker(name, cwd, run_dir, check=None, task=None):
@@ -86,18 +81,24 @@ def test_parse_findings_bare_json(tmp_path):
 
 
 def test_parse_findings_prose_wrapped_last_wins(tmp_path):
-    """Prose-wrapped JSON object is found (greedy match takes outermost braces)."""
+    """Last fenced JSON block wins when multiple blocks present."""
     run_dir, ws = make_run(
         tmp_path,
-        "Some analysis here...\n\n"
-        '{"findings": [{"line": 10, "description": "new issue"}]}\n'
-        "End of analysis.",
+        "Initial review:\n"
+        "```json\n"
+        '{"findings": [{"line": 10, "description": "draft issue"}]}\n'
+        "```\n\n"
+        "Corrected review:\n"
+        "```json\n"
+        '{"findings": [{"line": 42, "description": "actual bug"}]}\n'
+        "```",
     )
     proc, result = run_checker("parse-findings", ws, run_dir)
     assert proc.returncode == 0
     findings = json.loads((ws / "findings.json").read_text())
-    assert findings["findings"][0]["line"] == 10
-    assert findings["findings"][0]["description"] == "new issue"
+    # Should contain the LAST block's finding (line 42), not the first (line 10)
+    assert findings["findings"][0]["line"] == 42
+    assert findings["findings"][0]["description"] == "actual bug"
 
 
 def test_parse_findings_missing_findings_key_fails(tmp_path):
