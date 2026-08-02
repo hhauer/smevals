@@ -28,7 +28,7 @@ FAILURES=0
 for model in "${MODELS[@]}"; do
     echo "=============== model: $model ==============="
     "$LMS" unload --all
-    for eval in haiku markdown-tables; do
+    for eval in haiku markdown-tables code-authoring/interval-set code-authoring/usage-billing; do
         echo "--- $eval / $model ---"
         uv run smevals run "examples/$eval" -m "$model" -n 5 -g || FAILURES=$((FAILURES+1))
     done
@@ -41,5 +41,7 @@ echo "=============== deferred judge grading ==============="
 uv run smevals grade examples/pelican-riding-a-bicycle -g local || FAILURES=$((FAILURES+1))
 uv run smevals grade examples/pelican-riding-a-bicycle || FAILURES=$((FAILURES+1))
 uv run smevals grade examples/haiku -g judge || FAILURES=$((FAILURES+1))
+uv run smevals grade examples/code-authoring/interval-set -g judge || FAILURES=$((FAILURES+1))
+uv run smevals grade examples/code-authoring/usage-billing -g judge || FAILURES=$((FAILURES+1))
 
 echo "=============== sweep done: $FAILURES phase(s) had failures or failing grades ==============="
