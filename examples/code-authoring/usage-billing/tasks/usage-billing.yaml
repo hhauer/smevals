@@ -83,8 +83,9 @@ prompt: |
   is tracked per segment - each segment's usage starts again at the
   first tier. Sum units-times-centsPerUnit across tiers exactly (no
   rounding), then round the segment's usage total half-up to integer
-  cents. That per-line rounding and the tax rounding below are the
-  ONLY two roundings anywhere.
+  cents. Rounding happens in exactly three places - each base line,
+  each usage line, and tax - always half-up; never round anywhere
+  else.
 
   subtotalCents is the sum of all lines. taxCents is subtotalCents
   times taxRate, rounded half-up. totalCents = subtotalCents +
