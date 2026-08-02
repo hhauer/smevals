@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Runner contract:
+#   inputs:  $SMEVALS_MODEL, $SMEVALS_PROMPT, $SMEVALS_TASK, $SMEVALS_RUN_DIR
+#   cwd:     the run directory - files written here are kept as artifacts
+#   stdout:  the model's response (saved by smevals as output.txt)
+#   exit:    non-zero marks the Run as failed
+set -euo pipefail
+
+# An empty response is a harness problem (e.g. a thinking model hitting
+# a server-side token cap before emitting content), not model evidence:
+# fail the Run so it is excluded and replaced rather than graded.
+response="$(llm -m "$SMEVALS_MODEL" "$SMEVALS_PROMPT")"
+llm logs -c --json > log.json
+if [[ -z "${response//[[:space:]]/}" ]]; then
+    echo "empty model response" >&2
+    exit 1
+fi
+printf '%s\n' "$response"
