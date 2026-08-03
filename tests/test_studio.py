@@ -10,6 +10,7 @@ import http.client
 import json
 import os
 import pathlib
+import re
 import socket
 import subprocess
 import threading
@@ -117,6 +118,37 @@ def test_serves_studio_html(server):
     assert status == 200
     assert ctype == "text/html"
     assert body.decode() == studio.studio_html()
+
+
+def test_studio_html_calls_only_routes_studio_py_serves(server):
+    """Every /api/... literal in studio.html's JS is a route studio.py handles.
+
+    A cross-grep, not a router simulation: the JS builds paths like
+    `/api/evals/${enc(slug)}/file`, so each literal fragment is matched
+    against the /api/... string literals in studio.py's dispatch code. A
+    fragment ending at an interpolation (a trailing "/") matches any
+    studio.py route under that prefix; anything else must match a route
+    exactly. Serving is asserted live too, so a bundling regression (the
+    packaged file missing, say) fails here rather than only in the browser.
+    """
+    get, *_ = server
+    status, _, body = get("/")
+    assert status == 200
+    html = body.decode()
+
+    js_fragments = set(re.findall(r"/api/[A-Za-z0-9_./-]*", html))
+    assert js_fragments, "studio.html should call the API"
+
+    studio_py = pathlib.Path(studio.__file__).read_text()
+    routes = set(re.findall(r'"(/api/[A-Za-z0-9_./-]*)"', studio_py))
+    assert routes, "studio.py should declare /api/ routes as string literals"
+
+    for fragment in sorted(js_fragments):
+        if fragment.endswith("/"):
+            ok = any(route.startswith(fragment) for route in routes)
+        else:
+            ok = fragment in routes
+        assert ok, f"studio.html calls {fragment!r}, not a route in studio.py"
 
 
 # --- GET /api/evals ----------------------------------------------------------
