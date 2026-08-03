@@ -3140,6 +3140,7 @@ async function startRun(wb, buf) {
 
 async function pollJob(wb, jobId) {
   const active = () => state.wb === wb && wb.job && wb.job.id === jobId;
+  let errStreak = 0;
   while (active() && (wb.job.status === "queued" || wb.job.status === "running")) {
     await new Promise(resolve => setTimeout(resolve, 400));
     if (!active()) return;
@@ -3147,8 +3148,12 @@ async function pollJob(wb, jobId) {
       const job = await api(`/api/jobs/${enc(jobId)}`);
       if (!active()) return;
       wb.job = job;
+      errStreak = 0;
     } catch (ex) {
-      wb.job = { ...wb.job, status: "failed", error: ex.message };
+      // Tolerate one blip (a dropped fetch mid-poll) before giving up on a
+      // job that may still be running server-side.
+      errStreak++;
+      if (errStreak >= 2) wb.job = { ...wb.job, status: "failed", error: ex.message };
     }
     renderContext(wb);
   }
@@ -3349,6 +3354,15 @@ document.addEventListener("keydown", event => {
       event.preventDefault();
       saveOpen(state.wb);
     }
+    return;
+  }
+  if (event.key === "Escape") {
+    // Closes whichever dismissable panel is open, in priority order: the
+    // "new eval" form (shelf or empty-shelf), then a dry-run result panel.
+    const cancel = document.querySelector("form.new-eval [data-cancel]");
+    const dryClose = document.querySelector("[data-act=dryclose]");
+    if (cancel) cancel.click();
+    else if (dryClose) dryClose.click();
   }
 });
 
