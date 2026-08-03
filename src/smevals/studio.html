@@ -337,35 +337,477 @@ input:focus-visible, textarea:focus-visible {
 .empty-hint { font-size: var(--fs-sm); color: var(--text-3); }
 .empty-shelf form.new-eval { padding: var(--sp-4) 0 0; }
 
-/* ---- workbench placeholder ---------------------------------------------- */
+/* ---- workbench ----------------------------------------------------------
+   Three floating surfaces on the graph paper: file tree / editor / context.
+   The context panel is the teaching mirror and carries the page's one bold
+   move (the terminal-styled env block); everything else stays quiet. */
+:root { --wb-tree-w: 236px; --wb-ctx-w: 352px; }
+body.wb main { max-width: 1680px; }
+body.wb header { padding-block: var(--sp-5) var(--sp-4); }
 .crumb {
   font-size: var(--fs-sm);
   margin-bottom: var(--sp-4);
 }
-.panel { padding: var(--sp-6); }
-.panel h2 {
+.wb-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  flex-wrap: wrap;
+}
+.wb-head .crumb { margin: 0; }
+.wb-head h2 {
   margin: 0;
   font-size: var(--fs-xl);
   font-weight: 650;
   letter-spacing: -0.02em;
 }
-.panel .slug {
+.wb-head .badge-warn { margin-left: 0; }
+.wb-hint {
+  margin-left: auto;
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--text-3);
+  white-space: nowrap;
+}
+.wb-grid {
+  display: grid;
+  grid-template-columns: var(--wb-tree-w) minmax(0, 1fr) var(--wb-ctx-w);
+  gap: var(--sp-4);
+  align-items: start;
+}
+.pane { min-height: 0; }
+.pane-tree, .pane-ctx {
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  position: sticky;
+  top: var(--sp-4);
+}
+.pane-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+}
+@media (max-width: 1280px) { :root { --wb-ctx-w: 300px; } }
+@media (max-width: 1020px) {
+  .wb-grid { grid-template-columns: 1fr; }
+  .pane-tree, .pane-ctx { position: static; max-height: none; }
+}
+
+/* ---- file tree ----------------------------------------------------------- */
+.pane-tree { padding: var(--sp-3) var(--sp-2) var(--sp-4); }
+.tree-group-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: var(--sp-3) var(--sp-2) var(--sp-1);
+}
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px var(--sp-2);
+  cursor: pointer;
+}
+.tree-item:hover { background: var(--surface-2); color: var(--text); }
+.tree-item.sel { background: var(--accent-soft); color: var(--text); font-weight: 550; }
+.tree-item .fname {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+.tree-item .flags { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-1); }
+.dot-problem, .dot-dirty {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.dot-problem { background: var(--warn); }
+.dot-dirty { background: var(--accent); }
+.chip-x {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--pass);
+  border: 1px solid color-mix(in srgb, var(--pass) 40%, transparent);
+  border-radius: var(--r-sm);
+  padding: 0 4px;
+  line-height: 1.4;
+}
+.tree-empty { padding: 2px var(--sp-2); font-size: var(--fs-xs); color: var(--text-3); font-style: italic; }
+
+/* ---- editor pane --------------------------------------------------------- */
+.ed-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.ed-path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  overflow-wrap: anywhere;
+}
+.ed-actions { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.seg {
+  display: inline-flex;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  padding: 2px;
+}
+.seg button {
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  border-radius: calc(var(--r-sm) - 2px);
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.seg button:disabled { opacity: 0.45; cursor: default; }
+.btn-sm { font-size: var(--fs-xs); padding: 4px 10px; }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--line-strong);
+  font-weight: 500;
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--text-3); }
+.ed-note {
+  font-size: var(--fs-xs);
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--r-sm);
+  padding: 3px 9px;
+}
+.ed-err { padding: var(--sp-2) var(--sp-4) 0; }
+.ed-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ed-empty { padding: var(--sp-6); color: var(--text-2); font-size: var(--fs-sm); max-width: 58ch; }
+.ed-empty h3 { margin: 0 0 var(--sp-2); font-size: var(--fs-lg); font-weight: 650; letter-spacing: -0.01em; color: var(--text); }
+.ed-empty p { margin: 0 0 var(--sp-3); }
+
+/* ---- form view ----------------------------------------------------------- */
+.form-view { padding: var(--sp-4) var(--sp-5) var(--sp-5); overflow-y: auto; }
+.form-note {
+  font-size: var(--fs-xs);
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.ff { margin-bottom: var(--sp-4); }
+.ff > label, .ff-key {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--sp-1);
+}
+.ff-key { text-transform: none; letter-spacing: 0.02em; color: var(--text-2); }
+.ff input, .ff textarea, .ff select { width: 100%; }
+.ff input.mono, .ff textarea { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.ff-help { font-size: var(--fs-xs); color: var(--text-3); margin-top: var(--sp-1); }
+.ff-prob { font-size: var(--fs-xs); color: var(--warn); margin-top: var(--sp-1); }
+.ff-prob.hard { color: var(--fail); }
+.ff-row { display: flex; align-items: flex-start; gap: var(--sp-2); }
+.ff-row > .ff-val { flex: 1; }
+.ff-complex {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-style: italic;
+  padding: 6px 0;
+}
+.btn-del {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px var(--sp-1);
+  line-height: 1;
+}
+.btn-del:hover { color: var(--fail); }
+.add-key { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-2); }
+.add-key input { flex: 0 1 220px; font-family: var(--font-mono); font-size: var(--fs-sm); }
+select {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+}
+select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ---- checks sub-editor --------------------------------------------------- */
+.check-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-bottom: var(--sp-3);
+  background: color-mix(in srgb, var(--surface-2) 40%, transparent);
+}
+.check-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+.check-n {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--r-sm);
+  padding: 1px 7px;
+}
+.check-head select { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); }
+.check-tools { display: inline-flex; gap: 2px; }
+.check-tools button {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+  cursor: pointer;
+  line-height: 1.3;
+}
+.check-tools button:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.check-tools button:disabled { opacity: 0.35; cursor: default; }
+.check-body { padding: var(--sp-3); }
+.check-body .ff { margin-bottom: var(--sp-3); }
+.check-body .ff:last-child { margin-bottom: 0; }
+
+/* ---- raw view ------------------------------------------------------------ */
+.raw-view {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.raw-gutter-clip { overflow: hidden; flex: none; background: var(--surface-2); border-right: 1px solid var(--line); }
+.raw-gutter {
+  padding: var(--sp-3) var(--sp-2) var(--sp-3) var(--sp-3);
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  min-width: 3.2em;
+}
+.raw-gutter .pl { color: var(--warn); font-weight: 700; position: relative; }
+.raw-gutter .pl::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+textarea.raw-text {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: inherit;
+  padding: var(--sp-3) var(--sp-4);
+  resize: none;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+  min-height: 320px;
+}
+textarea.raw-text:focus-visible { outline: none; box-shadow: none; border: none; }
+
+/* ---- problems footer ----------------------------------------------------- */
+.prob-foot { border-top: 1px solid var(--line); padding: var(--sp-2) var(--sp-4) var(--sp-3); }
+.prob-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  padding: 2px 0;
+}
+.prob-line {
+  font-family: var(--font-mono);
+  color: var(--warn);
+  flex: none;
+  min-width: 3.5em;
+}
+.prob-row .kp { font-family: var(--font-mono); color: var(--text); }
+
+/* ---- conflict (409) ------------------------------------------------------ */
+.conflict { padding: var(--sp-4) var(--sp-5) var(--sp-5); overflow-y: auto; }
+.conflict-intro { font-size: var(--fs-sm); color: var(--text-2); margin: 0 0 var(--sp-3); max-width: 60ch; }
+.conflict-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+@media (max-width: 800px) { .conflict-grid { grid-template-columns: 1fr; } }
+.conflict-pane h4 {
+  margin: 0 0 var(--sp-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.conflict-pane pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  max-height: 380px;
+  overflow: auto;
+}
+.conflict-pane.ours pre { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.conflict-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-4); }
+
+/* ---- context panel ------------------------------------------------------- */
+.pane-ctx { padding: var(--sp-4) var(--sp-4) var(--sp-5); }
+.ctx-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 0 0 var(--sp-1);
+}
+.ctx-sub { font-size: var(--fs-xs); color: var(--text-3); margin: 0 0 var(--sp-3); }
+.ctx-note { font-size: var(--fs-sm); color: var(--text-2); }
+.ctx-note p { margin: 0 0 var(--sp-3); }
+.ctx-config-pick { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.ctx-config-pick label { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); }
+.ctx-config-pick select { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); }
+
+/* The env mirror keeps one fixed terminal palette in both color schemes -
+   it depicts the Runner's process environment, and a terminal is dark. */
+.env-block {
+  --eb-bg: #171a21;
+  --eb-line: #262b36;
+  --eb-name: #9aa3ff;
+  --eb-text: #dde2ea;
+  --eb-dim: #79818f;
+  background: var(--eb-bg);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  overflow-x: auto;
+  box-shadow: var(--shadow);
+}
+.env-var { padding-top: var(--sp-2); }
+.env-var:first-child { padding-top: 0; }
+.env-name { color: var(--eb-name); font-weight: 600; }
+.env-name::after { content: "="; color: var(--eb-dim); font-weight: 400; }
+.env-val {
+  color: var(--eb-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.env-val.dim, .env-missing { color: var(--eb-dim); font-style: italic; }
+.env-err { color: var(--eb-dim); font-style: italic; }
+.env-err b { color: #e2b45c; font-weight: 600; }
+
+/* ---- check pipeline (grader context) ------------------------------------- */
+.pipe { margin-top: var(--sp-2); }
+.pipe-step {
+  position: relative;
+  padding: 0 0 var(--sp-4) calc(var(--sp-5) + var(--sp-2));
+}
+.pipe-step:last-child { padding-bottom: 0; }
+.pipe-step::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+}
+.pipe-step:last-child::before { display: none; }
+.pipe-n {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.pipe-checker { font-family: var(--font-mono); font-size: var(--fs-sm); font-weight: 600; overflow-wrap: anywhere; }
+.pipe-status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-3); }
+.pipe-status .st-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.st-ok .st-dot { background: var(--pass); }
+.st-warn .st-dot { background: var(--warn); }
+.st-bad .st-dot { background: var(--fail); }
+.st-warn { color: var(--warn); }
+.st-bad { color: var(--fail); }
+.pipe-conf {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
   margin-top: var(--sp-1);
 }
-.panel .desc { color: var(--text-2); margin: var(--sp-3) 0 0; max-width: 62ch; }
-.placeholder-note {
-  margin-top: var(--sp-5);
-  padding: var(--sp-4) var(--sp-5);
-  background: var(--accent-soft);
-  border-radius: var(--r-md);
+.pipe-conf .k { color: var(--text-3); }
+.pipe-conf div { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 4.8em; overflow: hidden; }
+.pipe-foot {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
   color: var(--text-2);
-  font-size: var(--fs-sm);
-  max-width: 62ch;
 }
-.problems { margin-top: var(--sp-5); }
+
+/* ---- problems (workbench header voice, kept from the shelf era) ---------- */
 .problems h3 {
   margin: 0 0 var(--sp-2);
   font-family: var(--font-mono);
@@ -375,13 +817,6 @@ input:focus-visible, textarea:focus-visible {
   font-weight: 500;
   color: var(--warn);
 }
-.problem {
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  padding: var(--sp-1) 0;
-  color: var(--text-2);
-}
-.problem b { color: var(--text); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -411,7 +846,12 @@ async function api(path, options = {}) {
   let data = null;
   try { data = await response.json(); } catch { /* non-JSON reply */ }
   if (!response.ok) {
-    throw new Error(data?.error || `${path}: HTTP ${response.status}`);
+    const error = new Error(data?.error || `${path}: HTTP ${response.status}`);
+    // A 409 carries both versions of the file so the app can offer a choice
+    if (response.status === 409 && data?.theirs !== undefined) {
+      error.conflict = data;
+    }
+    throw error;
   }
   return data;
 }
@@ -585,51 +1025,1418 @@ async function renderShelf() {
   bindNewCard();
 }
 
-// --- workbench (placeholder until the editor lands) ----------------------
+// --- pure: YAML subset + derivations -------------------------------------
+// Everything in this block is a pure function of its arguments: no DOM, no
+// fetch, no state. The node verification harness extracts the block between
+// the STUDIO_PURE markers and asserts round-trips against real PyYAML.
+// The subset covers what smevals YAML actually uses (block maps/seqs,
+// literal and folded block scalars, quotes, comments, simple flow lists);
+// anything beyond it fails the parse honestly and the doc stays raw-only.
+// STUDIO_PURE_BEGIN
+const pure = (() => {
+  const BUILTIN_CHECKERS = ["contains", "xml-valid"];
 
-async function renderWorkbench(slug) {
-  const crumb = `<div class="crumb"><a href="#/">← shelf</a></div>`;
-  view.innerHTML = crumb;
-  let evals, detail;
+  const yerr = (message, line) => {
+    const e = new Error(message);
+    e.yaml = true;
+    e.line = line;
+    return e;
+  };
+
+  function parsePlain(s) {
+    if (s === "" || s === "~" || /^(null|Null|NULL)$/.test(s)) return null;
+    if (/^(true|True|TRUE)$/.test(s)) return true;
+    if (/^(false|False|FALSE)$/.test(s)) return false;
+    if (/^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$/.test(s)) {
+      return parseFloat(s);
+    }
+    if (/^[-+]?0x[0-9a-fA-F]+$/.test(s)) return parseInt(s.replace("0x", ""), 16);
+    return s;
+  }
+
+  const unescapeDouble = s => s.replace(/\\(.)/g, (all, c) =>
+    ({ n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\" }[c] ?? c));
+
+  function parseScalarToken(raw, line) {
+    const s = raw.trim();
+    let m = s.match(/^"((?:[^"\\]|\\.)*)"\s*(#.*)?$/);
+    if (m) return unescapeDouble(m[1]);
+    m = s.match(/^'((?:[^']|'')*)'\s*(#.*)?$/);
+    if (m) return m[1].replace(/''/g, "'");
+    if (s.startsWith('"') || s.startsWith("'")) {
+      throw yerr("unterminated quoted scalar", line);
+    }
+    if (s === "{}") return {};
+    if (s.startsWith("{")) throw yerr("flow mappings {…} are not supported", line);
+    if (s.startsWith("[")) {
+      m = s.match(/^\[(.*)\]\s*(#.*)?$/);
+      if (!m) throw yerr("multi-line flow sequences are not supported", line);
+      if (!m[1].trim()) return [];
+      return m[1]
+        .split(/,(?=(?:[^'"]|'[^']*'|"[^"]*")*$)/)
+        .map(part => parseScalarToken(part.trim(), line));
+    }
+    if (/^[&*!]/.test(s) || s.startsWith("? ")) {
+      throw yerr("anchors, aliases and tags are not supported", line);
+    }
+    const cut = s.search(/\s#/);
+    const body = cut >= 0 ? s.slice(0, cut).trimEnd() : s;
+    return parsePlain(body);
+  }
+
+  function matchKey(content) {
+    let m = content.match(/^"((?:[^"\\]|\\.)*)"\s*:(?:[ \t]+(.*))?$/);
+    if (m) return { key: unescapeDouble(m[1]), rest: m[2] ?? null };
+    m = content.match(/^'((?:[^']|'')*)'\s*:(?:[ \t]+(.*))?$/);
+    if (m) return { key: m[1].replace(/''/g, "'"), rest: m[2] ?? null };
+    m = content.match(/^([^:#]+?)\s*:(?:[ \t]+(.*))?$/);
+    if (m) return { key: m[1], rest: m[2] ?? null };
+    return null;
+  }
+
+  function yamlParse(text) {
+    const rawLines = String(text ?? "").split("\n");
+    const sig = [];
+    const lineMap = {};
+    try {
+      rawLines.forEach((raw, i) => {
+        if (/^\s*$/.test(raw)) return;
+        if (/^[ ]*\t/.test(raw)) throw yerr("tab indentation is not supported", i + 1);
+        const indent = raw.match(/^ */)[0].length;
+        const content = raw.slice(indent).replace(/\s+$/, "");
+        if (content.startsWith("#")) return;
+        if (content === "---" || content === "...") {
+          if (sig.length) throw yerr("multi-document YAML is not supported", i + 1);
+          return;
+        }
+        sig.push({ indent, content, line: i + 1 });
+      });
+
+      const isSeqItem = c => c === "-" || c.startsWith("- ");
+
+      // Block scalars read raw lines (blanks and #-lines are content there),
+      // so they return the next 1-based line to resume structure parsing at.
+      function parseBlockScalar(afterLine, parentIndent, style, chomp) {
+        const lines = [];
+        let li = afterLine; // 0-based index into rawLines
+        let blockIndent = -1;
+        while (li < rawLines.length) {
+          const raw = rawLines[li];
+          if (/^\s*$/.test(raw)) {
+            // Whitespace-only lines keep their content beyond the block
+            // indent (PyYAML does; the harness holds us to it)
+            lines.push(blockIndent > 0 && raw.length > blockIndent
+              ? raw.slice(blockIndent) : "");
+            li += 1;
+            continue;
+          }
+          const ind = raw.match(/^ */)[0].length;
+          if (ind <= parentIndent) break;
+          if (blockIndent < 0) blockIndent = ind;
+          if (ind < blockIndent) {
+            throw yerr("bad indentation inside a block scalar", li + 1);
+          }
+          lines.push(raw.slice(blockIndent));
+          li += 1;
+        }
+        while (lines.length && lines[lines.length - 1] === "") lines.pop();
+        let content = style === ">" ? foldLines(lines) : lines.join("\n");
+        if (chomp !== "-" && content) content += "\n";
+        return [content, li + 1];
+      }
+
+      function foldLines(lines) {
+        let out = "";
+        for (let i = 0; i < lines.length; i++) {
+          const ln = lines[i];
+          if (i === 0) { out = ln; continue; }
+          const prev = lines[i - 1];
+          if (ln === "") out += "\n";
+          else if (ln.startsWith(" ") || prev.startsWith(" ")) out += "\n" + ln;
+          else if (prev === "") out += ln;
+          else out += " " + ln;
+        }
+        return out;
+      }
+
+      const blockHeader = rest => {
+        const m = rest.match(/^([|>])([+-]?)\s*(#.*)?$/);
+        if (m) return { style: m[1], chomp: m[2] };
+        if (/^[|>]/.test(rest)) return "unsupported";
+        return null;
+      };
+
+      // Returns [value, nextSigIndex]
+      function parseValue(idx, parentIndent, keyPath, rest, line) {
+        if (rest !== null && rest !== "") {
+          const bh = blockHeader(rest);
+          if (bh === "unsupported") {
+            throw yerr("this block scalar header is not supported", line);
+          }
+          if (bh) {
+            const [value, resumeLine] =
+              parseBlockScalar(line, parentIndent, bh.style, bh.chomp);
+            let next = idx + 1;
+            while (next < sig.length && sig[next].line < resumeLine) next += 1;
+            return [value, next];
+          }
+          return [parseScalarToken(rest, line), idx + 1];
+        }
+        const nxt = sig[idx + 1];
+        if (nxt && nxt.indent > parentIndent) return parseNode(idx + 1, keyPath);
+        if (nxt && nxt.indent === parentIndent && isSeqItem(nxt.content)) {
+          return parseSeq(idx + 1, parentIndent, keyPath);
+        }
+        return [null, idx + 1];
+      }
+
+      function parseMap(i, indent, path) {
+        const obj = {};
+        let idx = i;
+        while (idx < sig.length && sig[idx].indent === indent
+               && !isSeqItem(sig[idx].content)) {
+          const L = sig[idx];
+          const km = matchKey(L.content);
+          if (!km) throw yerr(`expected "key: value", got ${JSON.stringify(L.content)}`, L.line);
+          const kp = path.concat(km.key);
+          lineMap[kp.join(".")] = L.line;
+          const [value, next] = parseValue(idx, indent, kp, km.rest, L.line);
+          obj[km.key] = value;
+          idx = next;
+        }
+        if (idx < sig.length && sig[idx].indent > indent) {
+          throw yerr("bad indentation", sig[idx].line);
+        }
+        return [obj, idx];
+      }
+
+      function parseSeq(i, indent, path) {
+        const arr = [];
+        let idx = i;
+        while (idx < sig.length && sig[idx].indent === indent
+               && isSeqItem(sig[idx].content)) {
+          const L = sig[idx];
+          const kp = path.concat(String(arr.length));
+          lineMap[kp.join(".")] = L.line;
+          if (L.content === "-") {
+            const nxt = sig[idx + 1];
+            if (nxt && nxt.indent > indent) {
+              const [value, next] = parseNode(idx + 1, kp);
+              arr.push(value);
+              idx = next;
+            } else { arr.push(null); idx += 1; }
+            continue;
+          }
+          const rest = L.content.slice(2).trimStart();
+          const keyCol = indent + (L.content.length - rest.length);
+          if (isSeqItem(rest)) throw yerr("nested inline sequences are not supported", L.line);
+          const km = matchKey(rest);
+          if (km) {
+            sig[idx] = { indent: keyCol, content: rest, line: L.line };
+            const [value, next] = parseMap(idx, keyCol, kp);
+            arr.push(value);
+            idx = next;
+          } else {
+            const [value, next] = parseValue(idx, indent, kp, rest, L.line);
+            arr.push(value);
+            idx = next;
+          }
+        }
+        return [arr, idx];
+      }
+
+      const parseNode = (i, path) =>
+        isSeqItem(sig[i].content)
+          ? parseSeq(i, sig[i].indent, path)
+          : parseMap(i, sig[i].indent, path);
+
+      if (!sig.length) return { ok: true, doc: {}, lineMap };
+      const [doc, next] = parseNode(0, []);
+      if (next !== sig.length) throw yerr("bad indentation", sig[next].line);
+      return { ok: true, doc, lineMap };
+    } catch (e) {
+      if (e && e.yaml) return { ok: false, error: e.message, line: e.line ?? null };
+      throw e;
+    }
+  }
+
+  // --- emitter ------------------------------------------------------------
+
+  const PLAIN_RE = /^[A-Za-z0-9_./][A-Za-z0-9_ ./,'()+?=-]*$/;
+  function plainSafe(s) {
+    return PLAIN_RE.test(s) && !/\s$/.test(s) && parsePlain(s) === s;
+  }
+  const emitKey = k => plainSafe(String(k)) ? String(k) : JSON.stringify(String(k));
+
+  function emitScalar(v) {
+    if (v === null || v === undefined) return "null";
+    if (typeof v === "boolean") return v ? "true" : "false";
+    if (typeof v === "number") return Number.isFinite(v) ? String(v) : "null";
+    const s = String(v);
+    return plainSafe(s) ? s : JSON.stringify(s);
+  }
+
+  function blockable(s) {
+    // Literal blocks preserve trailing whitespace, so only three shapes
+    // force the double-quoted fallback: a first line that would confuse
+    // indent detection, carriage returns, and 2+ trailing newlines
+    if (s.match(/\n*$/)[0].length > 1) return false;
+    const lines = s.replace(/\n$/, "").split("\n");
+    return lines[0] !== "" && !lines[0].startsWith(" ") && !s.includes("\r");
+  }
+
+  function emitBlock(s, indent, prefix) {
+    const pad = " ".repeat(indent);
+    const header = s.endsWith("\n") ? "|" : "|-";
+    const lines = s.replace(/\n$/, "").split("\n")
+      .map(ln => (ln === "" ? "" : pad + "  " + ln));
+    return prefix + " " + header + "\n" + lines.join("\n");
+  }
+
+  function emitEntry(key, v, indent) {
+    const pad = " ".repeat(indent);
+    const prefix = pad + emitKey(key) + ":";
+    if (v === null || v === undefined) return prefix;
+    if (Array.isArray(v)) {
+      return v.length ? prefix + "\n" + emitSeq(v, indent + 2) : prefix + " []";
+    }
+    if (typeof v === "object") {
+      return Object.keys(v).length
+        ? prefix + "\n" + emitMap(v, indent + 2)
+        : prefix + " {}";
+    }
+    if (typeof v === "string" && v.includes("\n") && blockable(v)) {
+      return emitBlock(v, indent, prefix);
+    }
+    return prefix + " " + emitScalar(v);
+  }
+
+  const emitMap = (obj, indent) =>
+    Object.entries(obj).map(([k, v]) => emitEntry(k, v, indent)).join("\n");
+
+  function emitSeq(arr, indent) {
+    const pad = " ".repeat(indent);
+    return arr.map(v => {
+      if (Array.isArray(v) && v.length) return pad + "-\n" + emitSeq(v, indent + 2);
+      if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length) {
+        const body = emitMap(v, indent + 2);
+        return pad + "- " + body.slice(indent + 2);
+      }
+      if (typeof v === "string" && v.includes("\n") && blockable(v)) {
+        return emitBlock(v, indent, pad + "-");
+      }
+      return pad + "- " + emitScalar(v);
+    }).join("\n");
+  }
+
+  function yamlEmit(doc) {
+    if (doc === null || doc === undefined) return "";
+    if (typeof doc !== "object" || Array.isArray(doc)) {
+      return emitScalar(doc) + "\n";
+    }
+    if (!Object.keys(doc).length) return "";
+    return emitMap(doc, 0) + "\n";
+  }
+
+  // --- keypath edits ------------------------------------------------------
+
+  const splitPath = p => (Array.isArray(p) ? p : String(p).split("."));
+
+  function getAt(doc, path) {
+    return splitPath(path).reduce(
+      (node, seg) => (node == null ? undefined : node[seg]), doc);
+  }
+
+  function setAt(doc, path, value) {
+    const segs = splitPath(path);
+    let node = doc;
+    for (const seg of segs.slice(0, -1)) {
+      if (node[seg] === null || node[seg] === undefined) node[seg] = {};
+      node = node[seg];
+    }
+    node[segs[segs.length - 1]] = value;
+  }
+
+  function delAt(doc, path) {
+    const segs = splitPath(path);
+    const parent = segs.length > 1 ? getAt(doc, segs.slice(0, -1)) : doc;
+    if (parent == null) return;
+    if (Array.isArray(parent)) parent.splice(Number(segs[segs.length - 1]), 1);
+    else delete parent[segs[segs.length - 1]];
+    // A map left empty by the deletion would linger as "key: {}" noise
+    if (segs.length > 1 && !Array.isArray(parent)
+        && parent && typeof parent === "object" && !Object.keys(parent).length) {
+      delAt(doc, segs.slice(0, -1));
+    }
+  }
+
+  // One text state in, one text state out: every form edit is an op applied
+  // to the parsed doc and re-emitted, so form and raw always agree.
+  function applyEdit(text, op) {
+    const parsed = yamlParse(text);
+    if (!parsed.ok) return { ok: false, error: parsed.error };
+    let doc = parsed.doc;
+    if (doc === null || typeof doc !== "object" || Array.isArray(doc)) doc = {};
+    if (op.op === "set") setAt(doc, op.path, op.value);
+    else if (op.op === "del") delAt(doc, op.path);
+    else if (op.op === "insert") {
+      let arr = getAt(doc, op.path);
+      if (!Array.isArray(arr)) { arr = []; setAt(doc, op.path, arr); }
+      arr.splice(op.at ?? arr.length, 0, op.value);
+    } else if (op.op === "move") {
+      const arr = getAt(doc, op.path);
+      if (!Array.isArray(arr)) return { ok: false, error: "not a list" };
+      const [item] = arr.splice(op.from, 1);
+      arr.splice(op.to, 0, item);
+    } else return { ok: false, error: `unknown op: ${op.op}` };
+    return { ok: true, text: yamlEmit(doc) };
+  }
+
+  // --- derivations --------------------------------------------------------
+
+  const isScalar = v =>
+    typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  // Python's str() of a YAML scalar, which is what the Runner's env gets
+  const pyStr = v => (typeof v === "boolean" ? (v ? "True" : "False") : String(v));
+  const slugifyModel = s =>
+    String(s).replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+
+  const envKey = k =>
+    "SMEVALS_TASK_" + String(k).replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+
+  // The exact environment cli.execute_run builds for the Runner subprocess,
+  // derived from the task doc's current text. opts: {config, model}.
+  function envMirror(text, opts = {}) {
+    const parsed = yamlParse(text);
+    if (!parsed.ok) return { ok: false, error: parsed.error, line: parsed.line };
+    const task = (parsed.doc && typeof parsed.doc === "object"
+                  && !Array.isArray(parsed.doc)) ? parsed.doc : {};
+    const name = isScalar(task.name) ? pyStr(task.name) : "";
+    const vars = [{ name: "SMEVALS_TASK", value: name, missing: !name }];
+    if ("prompt" in task) {
+      vars.push({
+        name: "SMEVALS_PROMPT",
+        value: isScalar(task.prompt) ? pyStr(task.prompt) : "",
+        missing: !isScalar(task.prompt),
+      });
+    }
+    vars.push({
+      name: "SMEVALS_MODEL",
+      value: opts.model || "",
+      missing: !opts.model,
+    });
+    vars.push({
+      name: "SMEVALS_RUN_DIR",
+      value: `runs/${name || "<task>"}/${opts.config || "<config>"}/`
+        + `${opts.model ? slugifyModel(opts.model) : "<model>"}/<timestamp>`,
+      synthetic: true,
+    });
+    for (const [k, v] of Object.entries(task)) {
+      if (isScalar(v)) vars.push({ name: envKey(k), value: pyStr(v) });
+    }
+    return { ok: true, vars };
+  }
+
+  // Normalize rel against fromDir without escaping the eval root
+  function resolveRel(fromDir, rel) {
+    if (typeof rel !== "string" || !rel || rel.startsWith("/")) return null;
+    const out = [];
+    for (const part of (fromDir + "/" + rel).split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") {
+        if (!out.length) return null;
+        out.pop();
+      } else out.push(part);
+    }
+    return out.join("/");
+  }
+
+  // The grader's check pipeline with each checker's resolution status,
+  // derived from the doc's current text plus the eval's file tree.
+  function pipeline(text, files = []) {
+    const parsed = yamlParse(text);
+    if (!parsed.ok) return { ok: false, error: parsed.error, line: parsed.line };
+    const grader = (parsed.doc && typeof parsed.doc === "object"
+                    && !Array.isArray(parsed.doc)) ? parsed.doc : {};
+    const byPath = new Map(files.map(f => [f.path, !!f.executable]));
+    const checks = Array.isArray(grader.checks) ? grader.checks : [];
+    const steps = checks.map((check, index) => {
+      if (check === null || typeof check !== "object" || Array.isArray(check)) {
+        return { index, checker: "", status: "invalid", config: {}, required: false };
+      }
+      const config = {};
+      for (const [k, v] of Object.entries(check)) if (k !== "checker") config[k] = v;
+      const step = {
+        index,
+        checker: typeof check.checker === "string" ? check.checker : "",
+        config,
+        required: check.required === true,
+      };
+      if (!step.checker) step.status = "missing";
+      else if (BUILTIN_CHECKERS.includes(step.checker)) step.status = "builtin";
+      else {
+        const resolved = resolveRel("graders", step.checker);
+        step.resolved = resolved;
+        if (!resolved) step.status = "outside";
+        else if (!byPath.has(resolved)) step.status = "not-found";
+        else step.status = byPath.get(resolved) ? "ok" : "not-executable";
+      }
+      return step;
+    });
+    const scoring = grader.scoring;
+    const threshold = scoring && typeof scoring === "object"
+      && typeof scoring.pass_threshold === "number"
+      ? scoring.pass_threshold : null;
+    return {
+      ok: true,
+      name: isScalar(grader.name) ? String(grader.name) : "",
+      hasChecks: Array.isArray(grader.checks),
+      steps,
+      threshold,
+    };
+  }
+
+  function docKind(path) {
+    if (path === "eval.yaml") return "eval";
+    const m = String(path).match(/^(tasks|configs|graders)\/[^/]+\.yaml$/);
+    return m ? { tasks: "task", configs: "config", graders: "grader" }[m[1]] : null;
+  }
+
+  return {
+    BUILTIN_CHECKERS, parsePlain, yamlParse, yamlEmit, getAt, applyEdit,
+    envMirror, pipeline, resolveRel, docKind,
+  };
+})();
+if (typeof module !== "undefined") module.exports = pure;
+// STUDIO_PURE_END
+
+// --- workbench -----------------------------------------------------------
+
+const KIND_GROUPS = [
+  ["tasks", "Tasks"], ["configs", "Configs"], ["graders", "Graders"],
+  ["checkers", "Checkers"], ["other", "Other files"],
+];
+
+const flatFiles = wb =>
+  KIND_GROUPS.flatMap(([kind]) => wb.detail.files[kind] || []);
+
+const dirty = buf => buf.text !== buf.savedText;
+const anyDirty = () =>
+  state.wb && [...state.wb.buffers.values()].some(dirty);
+
+const fileProblems = (wb, path) =>
+  (wb.detail.validation || []).filter(p => p.file === path);
+
+function fileHash(wb, path, raw) {
+  return `#/eval/${enc(wb.slug)}${path ? `/f/${enc(path)}` : ""}${raw ? "/raw" : ""}`;
+}
+
+async function loadWorkbench(slug) {
+  const wb = {
+    slug, detail: null, schemas: null, buffers: new Map(),
+    open: null, mirrorConfig: null, configCache: {}, err: null,
+  };
+  state.wb = wb;
+  view.innerHTML = `<div class="crumb"><a href="#/">← shelf</a></div>`;
   try {
-    [evals, detail] = await Promise.all([
+    const [evals, detail, schemas] = await Promise.all([
       loadEvals(),
       api(`/api/evals/${enc(slug)}`),
+      state.schemas ? Promise.resolve(state.schemas) : api("/api/schemas"),
     ]);
+    if (state.wb !== wb) return null;
+    state.schemas = schemas;
+    wb.detail = detail;
+    wb.schemas = schemas;
+    wb.info = evals.find(e => e.slug === slug) || { name: slug };
+    const configs = (detail.files.configs || [])
+      .map(f => f.path.replace(/^configs\//, "").replace(/\.yaml$/, ""));
+    wb.mirrorConfig = configs.includes("default") ? "default" : configs[0] || null;
+    loadConfigCache(wb);
+    return wb;
   } catch (ex) {
-    view.innerHTML = crumb + errorBox(ex.message);
-    return;
+    if (state.wb === wb) {
+      view.innerHTML =
+        `<div class="crumb"><a href="#/">← shelf</a></div>` + errorBox(ex.message);
+    }
+    return null;
   }
-  const info = evals.find(e => e.slug === slug) || {};
-  const problems = detail.validation || [];
+}
+
+// Config docs feed the env mirror's SMEVALS_MODEL; unsaved config edits in
+// open buffers win over the cached on-disk copies (see configText).
+async function loadConfigCache(wb) {
+  for (const entry of wb.detail.files.configs || []) {
+    if (wb.configCache[entry.path] !== undefined) continue;
+    try {
+      const data = await api(
+        `/api/evals/${enc(wb.slug)}/file?path=${enc(entry.path)}`);
+      if (state.wb !== wb) return;
+      wb.configCache[entry.path] = data.content;
+    } catch { wb.configCache[entry.path] = ""; }
+  }
+  if (state.wb === wb) renderContext(wb);
+}
+
+function configText(wb, name) {
+  const path = `configs/${name}.yaml`;
+  const buf = wb.buffers.get(path);
+  return buf ? buf.text : wb.configCache[path];
+}
+
+async function renderWorkbench(slug, fpath, rawForced) {
+  document.body.classList.add("wb");
+  let wb = state.wb && state.wb.slug === slug ? state.wb : null;
+  if (!wb) {
+    wb = await loadWorkbench(slug);
+    if (!wb) return;
+    renderShell(wb);
+  }
+  wb.open = fpath || null;
+  if (fpath && !wb.buffers.has(fpath)) {
+    renderPanes(wb); // tree selection + "Loading…" editor state
+    try {
+      const data = await api(
+        `/api/evals/${enc(slug)}/file?path=${enc(fpath)}`);
+      if (state.wb !== wb || wb.open !== fpath) return;
+      wb.buffers.set(fpath, {
+        path: fpath,
+        text: data.content,
+        savedText: data.content,
+        sha: data.sha256,
+        executable: data.executable,
+        conflict: null,
+        err: null,
+      });
+    } catch (ex) {
+      if (state.wb !== wb) return;
+      wb.err = ex.message;
+    }
+  }
+  const buf = fpath && wb.buffers.get(fpath);
+  if (buf) {
+    const kind = pure.docKind(fpath);
+    buf.view = rawForced || !kind || !pure.yamlParse(buf.text).ok
+      ? "raw" : "form";
+  }
+  renderPanes(wb);
+}
+
+function renderShell(wb) {
+  const problems = (wb.detail.validation || []).length;
   view.innerHTML = `
-    ${crumb}
-    <div class="card panel">
-      <h2>${esc(info.name || slug)}</h2>
-      ${info.name && info.name !== slug
-        ? `<div class="slug">${esc(slug)}</div>` : ""}
-      ${info.description ? `<p class="desc">${esc(info.description)}</p>` : ""}
-      ${problems.length ? `
-        <div class="problems">
-          <h3>${esc(plural(problems.length, "problem"))} to fix</h3>
-          ${problems.map(p => `
-            <div class="problem"><b>${esc(p.file)}</b> — ${esc(p.problem)}</div>
-          `).join("")}
-        </div>` : ""}
-      <div class="placeholder-note">
-        The workbench isn't built yet. File editing, live validation, and
-        the try-it bench land in the next build steps — everything on the
-        shelf is already real, and this page will grow into the editor.
-      </div>
+    <div class="wb-head">
+      <div class="crumb"><a href="#/">← shelf</a></div>
+      <h2>${esc(wb.info.name)}</h2>
+      ${problems ? `<span class="badge-warn">${esc(plural(problems, "problem"))}</span>` : ""}
+      <span class="wb-hint">⌘S saves · files live in your working tree</span>
+    </div>
+    <div class="wb-grid">
+      <nav class="card pane pane-tree" id="wb-tree" aria-label="Files"></nav>
+      <section class="card pane pane-editor" id="wb-editor"></section>
+      <aside class="card pane pane-ctx" id="wb-ctx" aria-label="Context"></aside>
     </div>`;
 }
+
+function renderPanes(wb) {
+  renderHeadBadge(wb);
+  renderTree(wb);
+  renderEditor(wb);
+  renderContext(wb);
+}
+
+function renderHeadBadge(wb) {
+  const head = view.querySelector(".wb-head");
+  if (!head) return;
+  const problems = (wb.detail.validation || []).length;
+  const badge = head.querySelector(".badge-warn");
+  if (problems) {
+    const html = `<span class="badge-warn">${esc(plural(problems, "problem"))}</span>`;
+    if (badge) badge.outerHTML = html;
+    else head.querySelector("h2").insertAdjacentHTML("afterend", html);
+  } else if (badge) badge.remove();
+}
+
+// --- file tree -----------------------------------------------------------
+
+function renderTree(wb) {
+  const box = document.getElementById("wb-tree");
+  if (!box) return;
+  const problemFiles = new Set((wb.detail.validation || []).map(p => p.file));
+  box.innerHTML = KIND_GROUPS.map(([kind, label]) => {
+    const entries = wb.detail.files[kind] || [];
+    if (!entries.length && kind === "checkers") return "";
+    return `
+      <div class="tree-group">
+        <div class="tree-group-label">${esc(label)}</div>
+        ${entries.length ? entries.map(f => {
+          const buf = wb.buffers.get(f.path);
+          const executable = buf ? buf.executable : f.executable;
+          return `
+            <button type="button" class="tree-item${wb.open === f.path ? " sel" : ""}"
+                    data-path="${esc(f.path)}">
+              <span class="fname">${esc(f.path)}</span>
+              <span class="flags">
+                ${executable ? `<span class="chip-x" title="executable">x</span>` : ""}
+                ${buf && dirty(buf) ? `<span class="dot-dirty" title="unsaved changes"></span>` : ""}
+                ${problemFiles.has(f.path) ? `<span class="dot-problem" title="has problems"></span>` : ""}
+              </span>
+            </button>`;
+        }).join("") : `<div class="tree-empty">none yet</div>`}
+      </div>`;
+  }).join("");
+  box.querySelectorAll(".tree-item").forEach(el =>
+    el.addEventListener("click", () => {
+      location.hash = fileHash(wb, el.dataset.path, false);
+    }));
+}
+
+// --- editor --------------------------------------------------------------
+
+function renderEditor(wb) {
+  const box = document.getElementById("wb-editor");
+  if (!box) return;
+  if (wb.err) {
+    box.innerHTML = `<div class="ed-err">${errorBox(wb.err)}</div>`;
+    wb.err = null;
+    return;
+  }
+  if (!wb.open) {
+    box.innerHTML = `
+      <div class="ed-empty">
+        <h3>Pick a file to edit</h3>
+        <p>Tasks are a prompt plus any scalar data you like. Configs point
+           at a Runner — an executable that gets the task as environment
+           variables and writes its answer to stdout. Graders are ordered
+           pipelines of checks over what came back.</p>
+        <p>Select a task and the panel on the right mirrors the exact
+           environment its Runner subprocess will receive, following your
+           edits as you type.</p>
+      </div>`;
+    return;
+  }
+  const buf = wb.buffers.get(wb.open);
+  if (!buf) {
+    box.innerHTML = `<div class="ed-empty"><p>Loading ${esc(wb.open)}…</p></div>`;
+    return;
+  }
+  const kind = pure.docKind(buf.path);
+  const parsed = kind ? pure.yamlParse(buf.text) : null;
+  const formable = kind && parsed.ok;
+  const isYaml = buf.path.endsWith(".yaml");
+  box.innerHTML = `
+    <div class="ed-head">
+      <span class="ed-path">${esc(buf.path)}
+        ${dirty(buf) ? `<span class="dot-dirty" title="unsaved changes"></span>` : ""}
+      </span>
+      <span class="ed-actions">
+        ${kind ? `
+          <span class="seg" role="group" aria-label="Editor view">
+            <button type="button" data-view="form" ${formable ? "" : "disabled"}
+                    class="${buf.view === "form" ? "on" : ""}">Form</button>
+            <button type="button" data-view="raw"
+                    class="${buf.view === "raw" ? "on" : ""}">Raw</button>
+          </span>` : ""}
+        ${kind && !formable && !buf.conflict ? `
+          <span class="ed-note">Form view needs valid YAML</span>` : ""}
+        ${!isYaml ? (buf.executable
+          ? `<span class="chip-x" title="runs as an executable">executable</span>`
+          : `<button type="button" class="btn btn-sm btn-ghost" data-act="chmod"
+                     title="Saves the file and sets its executable bit">
+               Make executable</button>`) : ""}
+        <button type="button" class="btn btn-sm btn-primary" data-act="save"
+                ${dirty(buf) && !buf.conflict ? "" : "disabled"}>Save</button>
+      </span>
+    </div>
+    <div class="ed-err" id="ed-err">${buf.err ? errorBox(buf.err) : ""}</div>
+    <div class="ed-body" id="ed-body"></div>`;
+  buf.err = null;
+
+  box.querySelectorAll("[data-view]").forEach(el =>
+    el.addEventListener("click", () => {
+      if (el.dataset.view === buf.view) return;
+      location.hash = fileHash(wb, buf.path, el.dataset.view === "raw");
+    }));
+  box.querySelector("[data-act=save]").addEventListener("click", () => saveOpen(wb));
+  const chmod = box.querySelector("[data-act=chmod]");
+  if (chmod) chmod.addEventListener("click", () => saveOpen(wb, { executable: true }));
+
+  const body = document.getElementById("ed-body");
+  if (buf.conflict) renderConflict(wb, buf, body);
+  else if (buf.view === "form") renderForm(wb, buf, body);
+  else renderRaw(wb, buf, body);
+}
+
+// A light refresh after keystrokes: dirty dots, save button, problem lists -
+// everything except the editor body itself, so focus and caret stay put.
+function refreshChrome(wb, buf) {
+  const box = document.getElementById("wb-editor");
+  const save = box.querySelector("[data-act=save]");
+  if (save) save.disabled = !dirty(buf) || !!buf.conflict;
+  const formBtn = box.querySelector("[data-view=form]");
+  if (formBtn) {
+    const formable = pure.yamlParse(buf.text).ok;
+    formBtn.disabled = !formable;
+    const note = box.querySelector(".ed-note");
+    if (!formable && !note && !buf.conflict) {
+      box.querySelector(".seg").insertAdjacentHTML("afterend",
+        `<span class="ed-note">Form view needs valid YAML</span>`);
+    } else if (formable && note) note.remove();
+  }
+  const pathEl = box.querySelector(".ed-path");
+  const dot = pathEl.querySelector(".dot-dirty");
+  if (dirty(buf) && !dot) {
+    pathEl.insertAdjacentHTML("beforeend",
+      `<span class="dot-dirty" title="unsaved changes"></span>`);
+  } else if (!dirty(buf) && dot) dot.remove();
+  renderTree(wb);
+  renderContext(wb);
+}
+
+// --- form view -----------------------------------------------------------
+
+let fieldSeq = 0;
+
+function valueEditor(kp, value, mode, probs) {
+  const id = `f${fieldSeq++}`;
+  const problems = (probs || []).map(p =>
+    `<div class="ff-prob${p.problem.startsWith("warning") ? "" : " hard"}">${esc(p.problem)}</div>`
+  ).join("");
+  if (Array.isArray(value) && value.every(v => v === null || typeof v !== "object")) {
+    const text = value.map(v => v === null ? "" : String(v)).join("\n");
+    return { id, problems, html: `
+      <textarea id="${id}" data-kp="${esc(kp)}" data-mode="list" spellcheck="false"
+                rows="${Math.min(Math.max(value.length + 1, 2), 10)}">${esc(text)}</textarea>
+      <div class="ff-help">One entry per line.</div>` };
+  }
+  if (value !== null && typeof value === "object") {
+    return { id, problems, html: `
+      <div class="ff-complex">A ${Array.isArray(value) ? "list" : "map"} —
+        edit this key in the Raw view.</div>` };
+  }
+  const display = value === null ? "" : String(value);
+  if (mode === "text" || display.includes("\n")) {
+    const rows = Math.min(Math.max(display.split("\n").length + 1, 3), 16);
+    return { id, problems, html: `
+      <textarea id="${id}" data-kp="${esc(kp)}" data-mode="${esc(mode)}"
+                spellcheck="false" rows="${rows}">${esc(display)}</textarea>` };
+  }
+  const mono = mode !== "text" ? "class=\"mono\"" : "";
+  return { id, problems, html: `
+    <input id="${id}" ${mono} data-kp="${esc(kp)}" data-mode="${esc(mode)}"
+           spellcheck="false" autocomplete="off"
+           ${mode === "number" ? `inputmode="decimal"` : ""}
+           value="${esc(display)}">` };
+}
+
+function checkerOptions(wb, current) {
+  const discovered = (wb.detail.files.checkers || [])
+    .map(f => "../" + f.path);
+  const options = [
+    `<optgroup label="Built-in checkers">` +
+      pure.BUILTIN_CHECKERS.map(b =>
+        `<option value="${esc(b)}" ${b === current ? "selected" : ""}>${esc(b)}</option>`
+      ).join("") + `</optgroup>`,
+  ];
+  if (discovered.length) {
+    options.push(`<optgroup label="Checker files">` +
+      discovered.map(c =>
+        `<option value="${esc(c)}" ${c === current ? "selected" : ""}>${esc(c)}</option>`
+      ).join("") + `</optgroup>`);
+  }
+  if (current && !pure.BUILTIN_CHECKERS.includes(current)
+      && !discovered.includes(current)) {
+    options.unshift(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
+  }
+  if (!current) options.unshift(`<option value="" selected>— pick a checker —</option>`);
+  return options.join("");
+}
+
+function checksEditor(wb, buf, checks, probs) {
+  const cards = checks.map((check, i) => {
+    const ok = check !== null && typeof check === "object" && !Array.isArray(check);
+    const checker = ok && typeof check.checker === "string" ? check.checker : "";
+    const checkProbs = probs.filter(p => p.path.startsWith(`checks.${i}`));
+    const rows = ok ? Object.entries(check).filter(([k]) => k !== "checker") : [];
+    return `
+      <div class="check-card">
+        <div class="check-head">
+          <span class="check-n">${i + 1}</span>
+          ${ok ? `<select data-checker="${i}" aria-label="Checker">
+                    ${checkerOptions(wb, checker)}</select>`
+               : `<span class="ff-complex">not a map — edit in Raw view</span>`}
+          <span class="check-tools">
+            <button type="button" data-act="move" data-i="${i}" data-d="-1"
+                    title="Move up" ${i === 0 ? "disabled" : ""}>↑</button>
+            <button type="button" data-act="move" data-i="${i}" data-d="1"
+                    title="Move down" ${i === checks.length - 1 ? "disabled" : ""}>↓</button>
+            <button type="button" data-act="delcheck" data-i="${i}"
+                    title="Remove this check">✕</button>
+          </span>
+        </div>
+        <div class="check-body">
+          ${checkProbs.filter(p => p.path === `checks.${i}.checker`).map(p =>
+            `<div class="ff-prob hard">${esc(p.problem)}</div>`).join("")}
+          ${rows.map(([k, v]) => {
+            const ed = valueEditor(`checks.${i}.${k}`, v, "scalar", []);
+            return `
+              <div class="ff">
+                <div class="ff-row">
+                  <div class="ff-val">
+                    <label class="ff-key" for="${ed.id}">${esc(k)}</label>
+                    ${ed.html}
+                  </div>
+                  <button type="button" class="btn-del" data-act="delkey"
+                          data-kp="checks.${i}.${esc(k)}" title="Remove ${esc(k)}">✕</button>
+                </div>
+              </div>`;
+          }).join("")}
+          ${ok ? `
+            <div class="add-key">
+              <input placeholder="add a key…" data-newkey="checks.${i}"
+                     spellcheck="false" autocomplete="off" aria-label="New key name">
+              <button type="button" class="btn btn-sm btn-ghost" data-act="addkey"
+                      data-parent="checks.${i}">Add</button>
+            </div>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+  return `
+    ${cards}
+    <button type="button" class="btn btn-sm btn-ghost" data-act="addcheck">
+      + Add check</button>`;
+}
+
+function renderForm(wb, buf, body) {
+  const kind = pure.docKind(buf.path);
+  const schema = wb.schemas[kind] || [];
+  const parsed = pure.yamlParse(buf.text);
+  const doc = (parsed.doc && typeof parsed.doc === "object"
+               && !Array.isArray(parsed.doc)) ? parsed.doc : {};
+  const probs = fileProblems(wb, buf.path);
+  const schemaTop = new Set(schema.map(f => f.key.split(".")[0]));
+
+  const fields = schema.map(field => {
+    const value = pure.getAt(doc, field.key);
+    const fieldProbs = probs.filter(p => p.path === field.key);
+    if (field.kind === "checks") {
+      const checks = Array.isArray(value) ? value : [];
+      return `
+        <div class="ff">
+          <label>${esc(field.label)}${field.required ? " *" : ""}</label>
+          ${probs.filter(p => p.path === "checks").map(p =>
+            `<div class="ff-prob hard">${esc(p.problem)}</div>`).join("")}
+          ${checksEditor(wb, buf, checks, probs)}
+          <div class="ff-help">${esc(field.help)}</div>
+        </div>`;
+    }
+    const mode = { str: "scalar", path: "scalar", number: "number", text: "text" }[field.kind] || "scalar";
+    const ed = valueEditor(field.key, value === undefined ? null : value, mode, fieldProbs);
+    return `
+      <div class="ff">
+        <label for="${ed.id}">${esc(field.label)}${field.required ? " *" : ""}</label>
+        ${ed.html}
+        ${ed.problems}
+        <div class="ff-help">${esc(field.help)}</div>
+      </div>`;
+  }).join("");
+
+  const extras = Object.entries(doc)
+    .filter(([k]) => !schemaTop.has(k))
+    .map(([k, v]) => {
+      const ed = valueEditor(k, v, "scalar", probs.filter(p => p.path === k));
+      return `
+        <div class="ff">
+          <div class="ff-row">
+            <div class="ff-val">
+              <label class="ff-key" for="${ed.id}">${esc(k)}</label>
+              ${ed.html}
+              ${ed.problems}
+            </div>
+            <button type="button" class="btn-del" data-act="delkey"
+                    data-kp="${esc(k)}" title="Remove ${esc(k)}">✕</button>
+          </div>
+        </div>`;
+    }).join("");
+
+  body.innerHTML = `
+    <div class="form-view">
+      ${/^\s*#/m.test(buf.text) ? `
+        <div class="form-note">This file has # comments. A form edit
+          rewrites the whole file and drops them — edit in Raw view to
+          keep them.</div>` : ""}
+      ${fields}
+      ${extras}
+      <div class="add-key">
+        <input placeholder="add any key…" data-newkey="" spellcheck="false"
+               autocomplete="off" aria-label="New key name">
+        <button type="button" class="btn btn-sm btn-ghost" data-act="addkey"
+                data-parent="">Add</button>
+      </div>
+      ${kind === "task" ? `
+        <div class="ff-help">Every scalar key here reaches the Runner as
+          SMEVALS_TASK_&lt;KEY&gt; — see the mirror on the right.</div>` : ""}
+    </div>`;
+  bindForm(wb, buf, body);
+}
+
+function fieldOp(el) {
+  const kp = el.dataset.kp;
+  const mode = el.dataset.mode;
+  const raw = el.value;
+  if (mode === "list") {
+    const items = raw.split("\n").filter(ln => ln.trim() !== "")
+      .map(ln => pure.parsePlain(ln.trim()));
+    return { op: "set", path: kp, value: items };
+  }
+  if (raw === "") return { op: "del", path: kp };
+  if (mode === "text") return { op: "set", path: kp, value: raw };
+  return { op: "set", path: kp, value: pure.parsePlain(raw.trim()) };
+}
+
+function bindForm(wb, buf, body) {
+  body.addEventListener("input", event => {
+    const el = event.target;
+    if (!el.dataset || el.dataset.kp === undefined) return;
+    const result = pure.applyEdit(buf.text, fieldOp(el));
+    if (result.ok) {
+      buf.text = result.text;
+      refreshChrome(wb, buf);
+    }
+  });
+  body.addEventListener("change", event => {
+    const el = event.target;
+    if (el.dataset.checker === undefined) return;
+    const result = pure.applyEdit(buf.text,
+      { op: "set", path: `checks.${el.dataset.checker}.checker`, value: el.value });
+    if (result.ok) { buf.text = result.text; renderEditor(wb); refreshChrome(wb, buf); }
+  });
+  body.addEventListener("click", event => {
+    const el = event.target.closest("[data-act]");
+    if (!el) return;
+    const act = el.dataset.act;
+    let op = null;
+    if (act === "addcheck") {
+      op = { op: "insert", path: "checks", value: { checker: "contains", value: "" } };
+    } else if (act === "delcheck") {
+      op = { op: "del", path: `checks.${el.dataset.i}` };
+    } else if (act === "move") {
+      const from = Number(el.dataset.i);
+      op = { op: "move", path: "checks", from, to: from + Number(el.dataset.d) };
+    } else if (act === "delkey") {
+      op = { op: "del", path: el.dataset.kp };
+    } else if (act === "addkey") {
+      const input = body.querySelector(
+        `[data-newkey="${CSS.escape(el.dataset.parent)}"]`);
+      const key = input.value.trim();
+      if (!key) { input.focus(); return; }
+      const path = el.dataset.parent ? `${el.dataset.parent}.${key}` : key;
+      if (pure.getAt(pure.yamlParse(buf.text).doc, path) !== undefined) {
+        input.focus();
+        return;
+      }
+      op = { op: "set", path, value: null };
+    } else return;
+    const result = pure.applyEdit(buf.text, op);
+    if (result.ok) {
+      buf.text = result.text;
+      renderEditor(wb);
+      refreshChrome(wb, buf);
+    }
+  });
+}
+
+// --- raw view ------------------------------------------------------------
+
+function problemRows(wb, buf) {
+  const kind = pure.docKind(buf.path);
+  const parsed = pure.yamlParse(buf.text);
+  const rows = fileProblems(wb, buf.path).map(p => {
+    let line = null;
+    if (p.path && parsed.ok && parsed.lineMap[p.path]) line = parsed.lineMap[p.path];
+    else {
+      const m = p.problem.match(/line (\d+)/);
+      if (m) line = Number(m[1]);
+    }
+    return { line, kp: p.path, message: p.problem };
+  });
+  if (kind && !parsed.ok) {
+    rows.push({
+      line: parsed.line,
+      kp: "",
+      message: `unsaved edit is not valid YAML: ${parsed.error}`,
+    });
+  }
+  return rows;
+}
+
+function gutterHtml(text, marked) {
+  const count = String(text).split("\n").length;
+  let html = "";
+  for (let n = 1; n <= count; n++) {
+    html += `<div${marked.has(n) ? ` class="pl"` : ""}>${n}</div>`;
+  }
+  return html;
+}
+
+const probFootHtml = rows => rows.length ? rows.map(r => `
+  <div class="prob-row">
+    <span class="prob-line">${r.line ? `L${r.line}` : "—"}</span>
+    ${r.kp ? `<span class="kp">${esc(r.kp)}</span>` : ""}
+    <span>${esc(r.message)}</span>
+  </div>`).join("") : "";
+
+function renderRaw(wb, buf, body) {
+  const rows = problemRows(wb, buf);
+  const marked = new Set(rows.map(r => r.line).filter(Boolean));
+  body.innerHTML = `
+    <div class="raw-view">
+      <div class="raw-gutter-clip"><div class="raw-gutter" id="raw-gutter">
+        ${gutterHtml(buf.text, marked)}</div></div>
+      <textarea class="raw-text" id="raw-text" spellcheck="false"
+                autocomplete="off" wrap="off"
+                aria-label="${esc(buf.path)}"></textarea>
+    </div>
+    <div class="prob-foot" id="prob-foot" ${rows.length ? "" : "hidden"}>
+      ${probFootHtml(rows)}</div>`;
+  const textarea = document.getElementById("raw-text");
+  textarea.value = buf.text;
+  const clip = body.querySelector(".raw-gutter-clip");
+  textarea.addEventListener("scroll", () => { clip.scrollTop = textarea.scrollTop; });
+  textarea.addEventListener("input", () => {
+    buf.text = textarea.value;
+    const rows2 = problemRows(wb, buf);
+    const marked2 = new Set(rows2.map(r => r.line).filter(Boolean));
+    document.getElementById("raw-gutter").innerHTML = gutterHtml(buf.text, marked2);
+    const foot = document.getElementById("prob-foot");
+    foot.innerHTML = probFootHtml(rows2);
+    foot.hidden = !rows2.length;
+    refreshChrome(wb, buf);
+  });
+}
+
+// --- save + conflicts ----------------------------------------------------
+
+async function saveOpen(wb, extra = {}) {
+  const buf = wb.open && wb.buffers.get(wb.open);
+  if (!buf || buf.saving || buf.conflict) return;
+  if (!dirty(buf) && !extra.executable) return;
+  buf.saving = true;
+  try {
+    const data = await api(`/api/evals/${enc(wb.slug)}/file`, {
+      method: "PUT",
+      body: { path: buf.path, content: buf.text, base_sha256: buf.sha, ...extra },
+    });
+    if (state.wb !== wb) return;
+    buf.sha = data.sha256;
+    buf.savedText = buf.text;
+    if (extra.executable !== undefined) buf.executable = extra.executable;
+    wb.detail.validation = data.validation;
+    restoreFocusAfter(() => { renderPanes(wb); });
+  } catch (ex) {
+    if (state.wb !== wb) return;
+    if (ex.conflict) buf.conflict = { theirs: ex.conflict.theirs };
+    else buf.err = ex.message;
+    renderEditor(wb);
+  } finally {
+    buf.saving = false;
+  }
+}
+
+// Saving from the keyboard must not eject the caret from the editor
+function restoreFocusAfter(rerender) {
+  const active = document.activeElement;
+  const isRaw = active && active.id === "raw-text";
+  const kp = active && active.dataset ? active.dataset.kp : undefined;
+  const sel = active && active.selectionStart !== undefined
+    ? [active.selectionStart, active.selectionEnd] : null;
+  const scroll = isRaw ? active.scrollTop : null;
+  rerender();
+  let target = null;
+  if (isRaw) target = document.getElementById("raw-text");
+  else if (kp !== undefined) {
+    target = document.querySelector(`#ed-body [data-kp="${CSS.escape(kp)}"]`);
+  }
+  if (target) {
+    target.focus();
+    if (sel) try { target.setSelectionRange(sel[0], sel[1]); } catch { /* not a text field */ }
+    if (scroll !== null) target.scrollTop = scroll;
+  }
+}
+
+function renderConflict(wb, buf, body) {
+  body.innerHTML = `
+    <div class="conflict">
+      <p class="conflict-intro">This file changed on disk while you were
+        editing — probably in another editor. Nothing has been written.
+        Compare the two versions, then keep one.</p>
+      <div class="conflict-grid">
+        <div class="conflict-pane">
+          <h4>On disk now</h4>
+          <pre>${esc(buf.conflict.theirs)}</pre>
+        </div>
+        <div class="conflict-pane ours">
+          <h4>Your unsaved edits</h4>
+          <pre>${esc(buf.text)}</pre>
+        </div>
+      </div>
+      <div class="conflict-actions">
+        <button type="button" class="btn btn-sm btn-ghost" data-res="reload">
+          Reload from disk</button>
+        <button type="button" class="btn btn-sm btn-primary" data-res="overwrite">
+          Keep my edits</button>
+      </div>
+    </div>`;
+  body.querySelector("[data-res=reload]").addEventListener("click", async () => {
+    try {
+      const data = await api(
+        `/api/evals/${enc(wb.slug)}/file?path=${enc(buf.path)}`);
+      if (state.wb !== wb) return;
+      Object.assign(buf, {
+        text: data.content, savedText: data.content,
+        sha: data.sha256, executable: data.executable, conflict: null,
+      });
+      await refreshDetail(wb);
+      renderPanes(wb);
+    } catch (ex) { buf.err = ex.message; renderEditor(wb); }
+  });
+  body.querySelector("[data-res=overwrite]").addEventListener("click", async () => {
+    try {
+      // Re-read for the current on-disk hash, then write our text over it
+      const current = await api(
+        `/api/evals/${enc(wb.slug)}/file?path=${enc(buf.path)}`);
+      if (state.wb !== wb) return;
+      buf.sha = current.sha256;
+      buf.conflict = null;
+      await saveOpen(wb);
+    } catch (ex) { buf.err = ex.message; renderEditor(wb); }
+  });
+}
+
+async function refreshDetail(wb) {
+  const detail = await api(`/api/evals/${enc(wb.slug)}`);
+  if (state.wb === wb) wb.detail = detail;
+}
+
+// --- context panel -------------------------------------------------------
+
+const ENV_CONTRACT = [
+  ["SMEVALS_TASK", "the task's name"],
+  ["SMEVALS_PROMPT", "the task's prompt, when it has one"],
+  ["SMEVALS_MODEL", "the model to attempt it with"],
+  ["SMEVALS_TASK_<KEY>", "every other scalar key on the task"],
+  ["SMEVALS_RUN_DIR", "where output.txt and artifacts land"],
+];
+
+function renderContext(wb) {
+  const box = document.getElementById("wb-ctx");
+  if (!box) return;
+  const buf = wb.open && wb.buffers.get(wb.open);
+  const kind = buf ? pure.docKind(buf.path) : null;
+  if (kind === "task") return renderTaskMirror(wb, buf, box);
+  if (kind === "grader") return renderGraderPipeline(wb, buf, box);
+  if (kind === "config") return renderConfigContext(wb, buf, box);
+  box.innerHTML = `
+    <p class="ctx-eyebrow">The Runner contract</p>
+    <p class="ctx-sub">what every Runner subprocess receives</p>
+    <div class="env-block">
+      ${ENV_CONTRACT.map(([name, what]) => `
+        <div class="env-var">
+          <span class="env-name">${esc(name)}</span>
+          <div class="env-val dim">${esc(what)}</div>
+        </div>`).join("")}
+    </div>
+    <div class="ctx-note" style="margin-top: var(--sp-3)">
+      <p>Open a task to see these filled in live, or a grader to see its
+         check pipeline.</p>
+    </div>`;
+}
+
+function configNames(wb) {
+  return (wb.detail.files.configs || [])
+    .map(f => f.path.replace(/^configs\//, "").replace(/\.yaml$/, ""));
+}
+
+function mirrorModel(wb) {
+  const name = wb.mirrorConfig;
+  if (!name) return { model: null, hint: "no configs yet" };
+  const text = configText(wb, name);
+  if (text === undefined) return { model: null, hint: "loading config…" };
+  const parsed = pure.yamlParse(text);
+  const model = parsed.ok && parsed.doc && typeof parsed.doc.model === "string"
+    ? parsed.doc.model : null;
+  return {
+    model,
+    hint: model ? `from configs/${name}.yaml` : `configs/${name}.yaml has no model — pass -m`,
+  };
+}
+
+function renderTaskMirror(wb, buf, box) {
+  const configs = configNames(wb);
+  const { model, hint } = mirrorModel(wb);
+  const mirror = pure.envMirror(buf.text, { config: wb.mirrorConfig, model });
+  box.innerHTML = `
+    <p class="ctx-eyebrow">What the Runner receives</p>
+    <p class="ctx-sub">live process environment · follows your edits</p>
+    ${configs.length ? `
+      <div class="ctx-config-pick">
+        <label for="ctx-config">config</label>
+        <select id="ctx-config">
+          ${configs.map(c => `
+            <option value="${esc(c)}" ${c === wb.mirrorConfig ? "selected" : ""}>
+              ${esc(c)}</option>`).join("")}
+        </select>
+      </div>` : ""}
+    <div class="env-block">
+      ${mirror.ok ? mirror.vars.map(v => `
+        <div class="env-var">
+          <span class="env-name">${esc(v.name)}</span>
+          <div class="env-val${v.missing || v.synthetic ? " dim" : ""}">${
+            v.missing
+              ? esc(v.name === "SMEVALS_MODEL" ? `(${hint})` : "(missing)")
+              : esc(v.value)}</div>
+        </div>`).join("")
+      : `<div class="env-err">The mirror is waiting for valid YAML —
+           <b>${esc(mirror.error)}</b></div>`}
+    </div>
+    <div class="ctx-note" style="margin-top: var(--sp-3)">
+      <p>This is the exact environment <code>smevals run</code> hands your
+         Runner subprocess. Add any scalar key to the task and it appears
+         here as <code>SMEVALS_TASK_&lt;KEY&gt;</code>.</p>
+    </div>`;
+  const pick = document.getElementById("ctx-config");
+  if (pick) pick.addEventListener("change", () => {
+    wb.mirrorConfig = pick.value;
+    renderContext(wb);
+  });
+}
+
+const PIPE_STATUS = {
+  builtin: ["st-ok", "built-in checker"],
+  ok: ["st-ok", "executable"],
+  "not-executable": ["st-warn", "found, but not executable"],
+  "not-found": ["st-bad", "no such file"],
+  outside: ["st-bad", "path escapes the eval"],
+  missing: ["st-bad", "no checker set"],
+  invalid: ["st-bad", "not a map"],
+};
+
+const pipeValue = v => {
+  if (v === null) return "";
+  if (Array.isArray(v)) return v.map(pipeValue).join(", ");
+  if (typeof v === "object") return "{…}";
+  const s = String(v);
+  const first = s.split("\n")[0];
+  return first === s ? s : first + " ⋯";
+};
+
+function renderGraderPipeline(wb, buf, box) {
+  const pipe = pure.pipeline(buf.text, flatFiles(wb));
+  if (!pipe.ok) {
+    box.innerHTML = `
+      <p class="ctx-eyebrow">Check pipeline</p>
+      <p class="ctx-sub">what smevals grade runs, in order</p>
+      <div class="env-block"><div class="env-err">The pipeline is waiting
+        for valid YAML — <b>${esc(pipe.error)}</b></div></div>`;
+    return;
+  }
+  box.innerHTML = `
+    <p class="ctx-eyebrow">Check pipeline</p>
+    <p class="ctx-sub">what smevals grade runs, in order</p>
+    <div class="pipe">
+      ${pipe.steps.length ? pipe.steps.map(step => {
+        const [cls, label] = PIPE_STATUS[step.status];
+        return `
+          <div class="pipe-step">
+            <span class="pipe-n">${step.index + 1}</span>
+            <div class="pipe-checker">${esc(step.checker || "—")}</div>
+            <div class="pipe-status ${cls}"><span class="st-dot"></span>
+              ${esc(label)}${step.required ? " · required — failure halts the pipeline" : ""}</div>
+            ${Object.keys(step.config).length ? `
+              <div class="pipe-conf">
+                ${Object.entries(step.config).map(([k, v]) => `
+                  <div><span class="k">${esc(k)}:</span> ${esc(pipeValue(v))}</div>`).join("")}
+              </div>` : ""}
+          </div>`;
+      }).join("") : `<div class="ctx-note"><p>No checks yet — add one in the
+        form view and it appears here.</p></div>`}
+    </div>
+    <div class="pipe-foot">
+      A grade passes when every check succeeds${pipe.threshold !== null
+        ? `, and the checks' final score reaches
+           ${esc(String(pipe.threshold))}` : ""}.
+    </div>`;
+}
+
+function renderConfigContext(wb, buf, box) {
+  const parsed = pure.yamlParse(buf.text);
+  const doc = parsed.ok && parsed.doc && typeof parsed.doc === "object"
+    ? parsed.doc : {};
+  const runner = typeof doc.runner === "string" ? doc.runner : "";
+  const resolved = runner ? pure.resolveRel("configs", runner) : null;
+  const entry = resolved
+    ? flatFiles(wb).find(f => f.path === resolved) : null;
+  const status = !runner ? ["st-bad", "no runner set"]
+    : !resolved ? ["st-bad", "path escapes the eval"]
+    : !entry ? ["st-bad", "no such file"]
+    : entry.executable ? ["st-ok", "executable"]
+    : ["st-warn", "found, but not executable"];
+  box.innerHTML = `
+    <p class="ctx-eyebrow">Config</p>
+    <p class="ctx-sub">picked with -c ${esc(doc.name || "…")}</p>
+    <div class="pipe">
+      <div class="pipe-step">
+        <span class="pipe-n">R</span>
+        <div class="pipe-checker">${esc(runner || "—")}</div>
+        <div class="pipe-status ${status[0]}"><span class="st-dot"></span>
+          ${esc(status[1])}</div>
+      </div>
+      <div class="pipe-step">
+        <span class="pipe-n">M</span>
+        <div class="pipe-checker">${esc(doc.model || "no default model")}</div>
+        <div class="pipe-status"><span></span>
+          ${doc.model ? "used when -m is omitted" : "every run must pass -m"}</div>
+      </div>
+    </div>
+    <div class="ctx-note" style="margin-top: var(--sp-3)">
+      <p>The runner is an executable, resolved relative to this file. It
+         receives the task as SMEVALS_* environment variables — open a task
+         to see them.</p>
+    </div>`;
+}
+
+// --- global editor keys + unload guard -----------------------------------
+
+document.addEventListener("keydown", event => {
+  if ((event.metaKey || event.ctrlKey) && !event.altKey
+      && event.key.toLowerCase() === "s") {
+    if (state.wb && state.wb.open) {
+      event.preventDefault();
+      saveOpen(state.wb);
+    }
+  }
+});
+
+window.addEventListener("beforeunload", event => {
+  if (anyDirty()) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
 
 // --- router --------------------------------------------------------------
 
 function route() {
   const hash = location.hash || "#/";
-  const eval_ = hash.match(/^#\/eval\/([^/?]+)/);
-  if (eval_) return renderWorkbench(decodeURIComponent(eval_[1]));
+  const m = hash.match(/^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?)?$/);
+  document.body.classList.toggle("wb", !!m);
+  if (m) {
+    return renderWorkbench(
+      decodeURIComponent(m[1]),
+      m[2] ? decodeURIComponent(m[2]) : null,
+      !!m[3]);
+  }
+  state.wb = null;
   return renderShelf();
 }
 

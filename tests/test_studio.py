@@ -151,6 +151,21 @@ def test_studio_html_calls_only_routes_studio_py_serves(server):
         assert ok, f"studio.html calls {fragment!r}, not a route in studio.py"
 
 
+def test_studio_html_interpolated_tails_match_studio_py_routes():
+    """Route tails after a ${...} interpolation are invisible to the
+    cross-grep above (the /api/... literal ends at the interpolation), so
+    the tails of /api/evals/${slug}/<tail> calls get their own check
+    against the tail-dispatch literals in studio.py."""
+    html = studio.studio_html()
+    tails = set(re.findall(r"/api/evals/\$\{[^}]*\}/([A-Za-z0-9_]+)", html))
+    assert tails, "studio.html should make nested /api/evals/<slug>/... calls"
+
+    studio_py = pathlib.Path(studio.__file__).read_text()
+    served = set(re.findall(r'tail == "([A-Za-z0-9_]+)"', studio_py))
+    assert served, "studio.py should dispatch on tail literals"
+    assert tails <= served, f"studio.html calls unserved tails: {tails - served}"
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 
