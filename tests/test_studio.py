@@ -462,6 +462,44 @@ def test_put_file_rejects_traversal(server):
     assert not (root / "escape.txt").exists()
 
 
+def test_put_file_rejects_writes_under_runs(server):
+    # Runs stay immutable (spec's named invariant): PUT must not be a back
+    # door into runs/, even with the correct base_sha256 for the real file
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    job = run_and_wait(get, "first-eval")
+    run_file = first / "runs" / job["run_dir"] / "run.yaml"
+    original = run_file.read_text()
+    sha = hashlib.sha256(original.encode()).hexdigest()
+
+    status, ctype, body = get(
+        "/api/evals/first-eval/file",
+        method="PUT",
+        body={
+            "path": f"runs/{job['run_dir']}/run.yaml",
+            "content": "tampered: true\n",
+            "base_sha256": sha,
+        },
+    )
+    assert status == 403
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+    assert run_file.read_text() == original
+
+
+def test_put_file_onto_a_directory_is_400(server):
+    get, root, first, second = server
+    empty_sha = hashlib.sha256(b"").hexdigest()
+    status, ctype, body = get(
+        "/api/evals/first-eval/file",
+        method="PUT",
+        body={"path": "tasks", "content": "oops", "base_sha256": empty_sha},
+    )
+    assert status == 400
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+
+
 def test_put_file_sets_executable_bit(server):
     get, root, first, second = server
     status, _, body = get("/api/evals/first-eval/file?path=run-llm")
@@ -801,10 +839,22 @@ def test_runs_listing_reuses_collect_eval(server):
 
 # --- GET /api/models ------------------------------------------------------------
 
-FAKE_LLM_JSON = python_script("""\
+# `llm models list` has no --json option (verified against the real llm
+# 0.31.1 installed on this machine - `llm models list --json` exits 2,
+# "No such option '--json'"). These lines are copied verbatim from that
+# machine's real `llm models list` plain-text output, so the parser is
+# tested against ground truth, not an invented shape.
+FAKE_LLM = python_script("""\
     import sys
-    if sys.argv[1:4] == ["models", "list", "--json"]:
-        print('[{"model_id": "fake-model-a"}, {"model_id": "fake-model-b"}]')
+    if sys.argv[1:3] == ["models", "list"]:
+        print("OpenAI Chat: gpt-4o (aliases: 4o)")
+        print("OpenAI Chat: gpt-4o-audio-preview")
+        print("OpenAI Chat: gpt-3.5-turbo (aliases: 3.5, chatgpt)")
+        print(
+            "OpenAI Completion: gpt-3.5-turbo-instruct "
+            "(aliases: 3.5-instruct, chatgpt-instruct)"
+        )
+        print("Default: gpt-4o-mini")
     """)
 
 
@@ -825,17 +875,73 @@ def test_models_configs_only_fallback_without_llm_on_path(
     }  # both scaffolded evals' config default
 
 
-def test_models_includes_llm_list_when_available(server, monkeypatch, tmp_path):
+def test_models_parses_real_llm_plain_text_format(server, monkeypatch, tmp_path):
     get, *_ = server
     bin_dir = tmp_path / "fake-bin"
     bin_dir.mkdir()
-    write_executable(bin_dir / "llm", FAKE_LLM_JSON)
+    write_executable(bin_dir / "llm", FAKE_LLM)
     monkeypatch.setenv("PATH", str(bin_dir))
 
     status, _, body = get("/api/models")
     assert status == 200
     data = json.loads(body)
-    assert {"fake-model-a", "fake-model-b", "gpt-4.1-mini"} <= set(data["models"])
+    assert {
+        "gpt-4o",
+        "gpt-4o-audio-preview",
+        "gpt-3.5-turbo",
+        "gpt-3.5-turbo-instruct",
+        "gpt-4o-mini",
+        "gpt-4.1-mini",  # from the scaffolded evals' configs
+    } <= set(data["models"])
+    # the " (aliases: ...)" suffix and its contents must not leak through
+    assert "4o" not in data["models"]
+    assert "3.5, chatgpt" not in data["models"]
+
+
+# --- unhandled-exception safety net --------------------------------------
+
+# Every API error must come back as JSON {error}, per the spec - never a
+# dropped connection. These reproduce cases that previously crashed the
+# request thread with no reply at all (RemoteDisconnected on the client).
+
+
+def test_dryrun_missing_output_txt_returns_json_error(server):
+    get, root, first, second = server
+    # A hand-fabricated Run missing output.txt (not something execute_run
+    # would ever produce) - the built-in "contains" checker reads
+    # output.txt directly and would otherwise raise unhandled
+    run_dir = first / "runs" / "example" / "default" / "m" / "2026-01-01T00-00-00Z"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run.yaml").write_text(
+        yaml.safe_dump({"task": {"name": "example"}, "exit_code": 0})
+    )
+    grader_yaml = yaml.safe_dump(
+        {"name": "x", "checks": [{"checker": "contains", "value": "hi"}]}
+    )
+    status, ctype, body = get(
+        "/api/evals/first-eval/dryrun",
+        method="POST",
+        body={
+            "run": "example/default/m/2026-01-01T00-00-00Z",
+            "grader_yaml": grader_yaml,
+        },
+    )
+    assert status == 500
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+
+
+def test_run_config_missing_runner_key_returns_json_error(server):
+    get, root, first, second = server
+    (first / "configs" / "broken.yaml").write_text(yaml.safe_dump({"name": "broken"}))
+    status, ctype, body = get(
+        "/api/evals/first-eval/run",
+        method="POST",
+        body={"task": "example", "config": "broken", "model": "m"},
+    )
+    assert status == 500
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
 
 
 # --- misc routing ------------------------------------------------------------

@@ -18,8 +18,10 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
+import traceback
 import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -221,11 +223,33 @@ def config_models(root):
     return models
 
 
+def parse_llm_models_list(text):
+    """Parse `llm models list`'s plain-text output into a set of model ids.
+
+    Each line looks like "<provider label>: <model id>[ (aliases: ...)]",
+    e.g. "OpenAI Chat: gpt-4o (aliases: 4o)" or, alias-less, "OpenAI Chat:
+    gpt-4o-audio-preview". llm (0.31.1) has no machine-readable option for
+    this command - `models list --json` doesn't exist - so this is a
+    best-effort scrape of the human-oriented output: a line that doesn't
+    fit the pattern is just skipped, since a garbled model list is a
+    smaller suggestion list, never a hard failure.
+    """
+    models = set()
+    for line in text.splitlines():
+        _, sep, rest = line.partition(": ")
+        if not sep:
+            continue
+        model_id = rest.split(" (aliases:", 1)[0].strip()
+        if model_id:
+            models.add(model_id)
+    return models
+
+
 def llm_models():
-    "Best-effort model set from `llm models list --json`, empty if unavailable within 2s"
+    "Best-effort model set from `llm models list`, empty if unavailable within 2s"
     try:
         result = subprocess.run(
-            ["llm", "models", "list", "--json"],
+            ["llm", "models", "list"],
             capture_output=True,
             text=True,
             timeout=2,
@@ -234,21 +258,7 @@ def llm_models():
         return set()
     if result.returncode != 0:
         return set()
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return set()
-    if not isinstance(data, list):
-        return set()
-    models = set()
-    for entry in data:
-        if isinstance(entry, str):
-            models.add(entry)
-        elif isinstance(entry, dict):
-            model_id = entry.get("model_id") or entry.get("id")
-            if model_id:
-                models.add(model_id)
-    return models
+    return parse_llm_models_list(result.stdout)
 
 
 def run_studio(root, port):
@@ -300,7 +310,29 @@ def run_studio(root, port):
             del active_jobs[slug]
 
     class Handler(BaseHTTPRequestHandler):
+        # Every API error must come back as JSON {error}, per the spec -
+        # never a dropped connection. do_GET/do_POST/do_PUT wrap their real
+        # dispatch in a catch-all: any exception that escapes a handler
+        # (a malformed on-disk file, a checker crash, ...) becomes a JSON
+        # 500 instead of killing the request thread with no reply. The
+        # traceback still goes to stderr, never to the client.
         def do_GET(self):
+            self.safe_dispatch(self.dispatch_get)
+
+        def do_POST(self):
+            self.safe_dispatch(self.dispatch_post)
+
+        def do_PUT(self):
+            self.safe_dispatch(self.dispatch_put)
+
+        def safe_dispatch(self, handler):
+            try:
+                handler()
+            except Exception as ex:
+                traceback.print_exc(file=sys.stderr)
+                self.reply_error(500, f"internal error: {ex}")
+
+        def dispatch_get(self):
             parts = urllib.parse.urlsplit(self.path)
             if parts.path == "/":
                 return self.reply(200, studio_html().encode(), "text/html")
@@ -323,7 +355,7 @@ def run_studio(root, port):
                 )
             self.reply_error(404, "not found")
 
-        def do_POST(self):
+        def dispatch_post(self):
             parts = urllib.parse.urlsplit(self.path)
             if parts.path == "/api/evals":
                 return self.handle_scaffold()
@@ -340,7 +372,7 @@ def run_studio(root, port):
                     return self.handle_dryrun(eval_dir)
             self.reply_error(404, "not found")
 
-        def do_PUT(self):
+        def dispatch_put(self):
             parts = urllib.parse.urlsplit(self.path)
             if parts.path.startswith("/api/evals/"):
                 slug, _, tail = parts.path.removeprefix("/api/evals/").partition("/")
@@ -446,6 +478,12 @@ def run_studio(root, port):
             target = resolve_within(eval_dir, body.get("path"))
             if target is None:
                 return self.reply_error(400, "path escapes the eval directory")
+            if target.is_relative_to((eval_dir / "runs").resolve()):
+                return self.reply_error(
+                    403, "runs/ is immutable - Studio never writes there"
+                )
+            if target.is_dir():
+                return self.reply_error(400, "path is a directory")
             content = body.get("content")
             if not isinstance(content, str):
                 return self.reply_error(400, "content must be a string")
