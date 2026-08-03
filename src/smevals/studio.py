@@ -30,7 +30,7 @@ from pathlib import Path
 
 import yaml
 
-from .authoring import scaffold_eval, validate_eval
+from .authoring import FILE_SCHEMAS, scaffold_eval, validate_eval
 from .cli import (
     discover_evals,
     execute_run,
@@ -343,6 +343,8 @@ def run_studio(root, port):
                         for slug, eval_path in sorted(discover_slugs(root).items())
                     ]
                 )
+            if parts.path == "/api/schemas":
+                return self.reply_json(FILE_SCHEMAS)
             if parts.path == "/api/models":
                 return self.reply_json(
                     {"models": sorted(config_models(root) | cached_llm_models())}

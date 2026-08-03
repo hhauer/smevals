@@ -21,7 +21,7 @@ import yaml
 
 from conftest import python_script, read_yaml, write_executable
 from smevals import studio
-from smevals.authoring import scaffold_eval
+from smevals.authoring import FILE_SCHEMAS, scaffold_eval
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 
@@ -149,6 +149,19 @@ def test_studio_html_calls_only_routes_studio_py_serves(server):
         else:
             ok = fragment in routes
         assert ok, f"studio.html calls {fragment!r}, not a route in studio.py"
+
+
+# --- GET /api/schemas --------------------------------------------------------
+
+
+def test_schemas_endpoint_serves_file_schemas(server):
+    # The form view is generated from FILE_SCHEMAS; the endpoint must hand
+    # the frontend exactly what authoring.py declares, not a copy
+    get, *_ = server
+    status, ctype, body = get("/api/schemas")
+    assert status == 200
+    assert ctype == "application/json"
+    assert json.loads(body) == FILE_SCHEMAS
 
 
 # --- GET /api/evals ----------------------------------------------------------
