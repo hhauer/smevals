@@ -1048,16 +1048,42 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g,
   c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const enc = encodeURIComponent;
 const view = document.getElementById("view");
-const state = { evals: null, models: null };
+// wbCache: slug -> workbench state parked while another route is showing -
+// see renderWorkbench/route. Unsaved buffers and an in-flight job survive an
+// in-app trip to the shelf and back this way, instead of the shelf discarding
+// state.wb outright.
+const state = { evals: null, models: null, wb: null, wbCache: new Map() };
+
+// --- studio key ------------------------------------------------------------
+//
+// `smevals studio` prints the URL with ?k=<token>; every /api/* request must
+// carry it as X-Studio-Key or the server 403s (a loopback bind alone doesn't
+// stop a hostile page open in the same browser from reaching it). Read once
+// from the URL, stash in sessionStorage (survives in-tab navigation, not a
+// new tab), then scrub the query string so the token never sits in history
+// or gets shared via a copy-pasted link.
+const STUDIO_KEY_STORAGE = "smevals-studio-key";
+(() => {
+  const params = new URLSearchParams(location.search);
+  const k = params.get("k");
+  if (!k) return;
+  sessionStorage.setItem(STUDIO_KEY_STORAGE, k);
+  params.delete("k");
+  const rest = params.toString();
+  history.replaceState(null, "",
+    location.pathname + (rest ? `?${rest}` : "") + location.hash);
+})();
+const studioKey = () => sessionStorage.getItem(STUDIO_KEY_STORAGE) || "";
 
 // --- fetch layer ---------------------------------------------------------
 
 async function api(path, options = {}) {
-  const init = options.body === undefined ? options : {
+  const init = options.body === undefined ? { ...options } : {
     method: options.method || "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options.body),
   };
+  init.headers = { ...(init.headers || {}), "X-Studio-Key": studioKey() };
   const response = await fetch(path, init);
   let data = null;
   try { data = await response.json(); } catch { /* non-JSON reply */ }
@@ -1802,8 +1828,11 @@ const flatFiles = wb =>
   KIND_GROUPS.flatMap(([kind]) => wb.detail.files[kind] || []);
 
 const dirty = buf => buf.text !== buf.savedText;
+const wbDirty = wb => wb && [...wb.buffers.values()].some(dirty);
+// Checks the active workbench AND every one parked in wbCache - an unsaved
+// edit left behind on a shelf trip must still block a real tab close.
 const anyDirty = () =>
-  state.wb && [...state.wb.buffers.values()].some(dirty);
+  wbDirty(state.wb) || [...state.wbCache.values()].some(wbDirty);
 
 const fileProblems = (wb, path) =>
   (wb.detail.validation || []).filter(p => p.file === path);
@@ -1872,14 +1901,37 @@ function configText(wb, name) {
   return buf ? buf.text : wb.configCache[path];
 }
 
+// Parks the active workbench (if any) in wbCache under its own slug, so a
+// route change away from it doesn't discard unsaved buffers or a job.
+function stashWorkbench() {
+  if (state.wb) state.wbCache.set(state.wb.slug, state.wb);
+}
+
 // surface: { file, raw } for the editor, { runs: true, run } for the bench
 async function renderWorkbench(slug, surface) {
   document.body.classList.add("wb");
   let wb = state.wb && state.wb.slug === slug ? state.wb : null;
+  let reattached = false;
+  if (!wb) {
+    stashWorkbench();
+    wb = state.wbCache.get(slug) || null;
+    if (wb) {
+      state.wb = wb;
+      reattached = true;
+    }
+  }
   if (!wb) {
     wb = await loadWorkbench(slug);
     if (!wb) return;
     renderShell(wb);
+  } else if (reattached) {
+    renderShell(wb);
+    // The previous poll loop exited when this workbench stopped being
+    // state.wb (it gates on state.wb === wb); a still-running job needs a
+    // fresh pollJob to pick the progress panel back up.
+    if (wb.job && (wb.job.status === "queued" || wb.job.status === "running")) {
+      pollJob(wb, wb.job.id);
+    }
   }
   wb.surface = surface;
   const fpath = surface.file || null;
@@ -3389,6 +3441,7 @@ function route() {
     return renderWorkbench(slug,
       { file: m[2] ? decodeURIComponent(m[2]) : null, raw: !!m[3] });
   }
+  stashWorkbench();
   state.wb = null;
   return renderShelf();
 }

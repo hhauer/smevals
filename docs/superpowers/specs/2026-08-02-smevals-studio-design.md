@@ -24,6 +24,10 @@ answered here with its reasoning, so he can veto any decision cheaply.
 3. **Studio binds 127.0.0.1 only, no auth.** It writes files and
    executes runners; it must never be exposed. `--host` is
    deliberately not offered on studio.
+   **Final-review addendum (2026-08-02):** binding loopback isn't
+   enough on its own - any web page open in the same browser can still
+   reach it - so a fresh random token now gates every `/api/*` request,
+   printed once in the CLI's startup URL.
 4. **Scope: authoring + iteration, not run orchestration.** Studio
    creates and edits evals and offers a tight try-it loop (run ONE
    task, grade ONE run, dry-run a grader edit). Fleet sweeps stay in

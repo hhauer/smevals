@@ -270,9 +270,7 @@ def run_failed(run):
 def count_existing_runs(runs_root, task_name, config_name, model):
     "Successful Runs already recorded for one task/config/model combination"
     parent = runs_root / task_name / config_name / slugify(model)
-    return sum(
-        1 for p in parent.glob("*/run.yaml") if not run_failed(load_yaml(p))
-    )
+    return sum(1 for p in parent.glob("*/run.yaml") if not run_failed(load_yaml(p)))
 
 
 def execute_run(runs_root, task, config_name, runner, model, echo=click.echo):
@@ -658,13 +656,16 @@ def studio(root, port):
 
     DIR defaults to the current directory (Suite semantics identical to
     serve's discovery: every Eval found under it appears on the shelf).
-    Binds 127.0.0.1 only, with no auth - Studio writes files and executes
-    Runners and Checkers, so it must never be exposed on the network.
+    Binds 127.0.0.1 only - Studio writes files and executes Runners and
+    Checkers, so it must never be exposed on the network. A fresh random
+    token gates every /api/* request (a hostile web page can still reach
+    a loopback server); open the URL below, token and all.
     """
     from . import studio as studio_app
 
-    click.echo(f"Studio serving {root} on http://127.0.0.1:{port}")
-    studio_app.run_studio(root, port)
+    token = studio_app.generate_token()
+    click.echo(f"Studio serving {root} on http://127.0.0.1:{port}/?k={token}")
+    studio_app.run_studio(root, port, token)
 
 
 @cli.command()

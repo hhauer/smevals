@@ -67,19 +67,37 @@ def suite(tmp_path):
 @pytest.fixture
 def server(suite):
     root, first, second = suite
+    token = studio.generate_token()
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    threading.Thread(target=studio.run_studio, args=(root, port), daemon=True).start()
+    threading.Thread(
+        target=studio.run_studio, args=(root, port, token), daemon=True
+    ).start()
 
-    def get(path, method="GET", body=None):
-        "GET by default; pass method=/body= for POST and PUT requests"
+    def get(path, method="GET", body=None, headers=None):
+        """GET by default; pass method=/body= for POST and PUT requests.
+
+        Every call carries the server's real X-Studio-Key by default, so
+        every existing test exercises the authorized path without having
+        to know about auth. headers overrides/extends that default set
+        for one call; a value of None for a key omits that header
+        entirely (e.g. to probe a request sent with no Content-Type or
+        no X-Studio-Key).
+        """
         data = json.dumps(body).encode() if body is not None else None
-        headers = {"Content-Type": "application/json"} if data is not None else {}
+        req_headers = {"X-Studio-Key": token}
+        if data is not None:
+            req_headers["Content-Type"] = "application/json"
+        for key, value in (headers or {}).items():
+            if value is None:
+                req_headers.pop(key, None)
+            else:
+                req_headers[key] = value
         for attempt in range(100):
             try:
                 conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-                conn.request(method, path, body=data, headers=headers)
+                conn.request(method, path, body=data, headers=req_headers)
                 response = conn.getresponse()
                 return (
                     response.status,
@@ -446,6 +464,66 @@ def test_scaffold_duplicate_directory_is_400(server):
     )
     assert status == 400
     assert "error" in json.loads(body)
+
+
+def test_scaffold_rejects_parent_inside_an_evals_runs_dir(server):
+    # runs/ is immutable and never a valid home for a new Eval; scaffolding
+    # there would also make the new Eval undiscoverable (nested inside a
+    # dir discover_evals already treats as one Eval)
+    get, root, first, second = server
+    status, ctype, body = get(
+        "/api/evals",
+        method="POST",
+        body={
+            "name": "nested",
+            "description": "x",
+            "parent": "first-eval/runs/example/default/m/2026-01-01T00-00-00Z",
+        },
+    )
+    assert status == 400
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+    assert not any(root.rglob("nested"))
+
+
+def test_scaffold_rejects_parent_inside_an_eval_root(server):
+    get, root, first, second = server
+    status, _, body = get(
+        "/api/evals",
+        method="POST",
+        body={"name": "nested", "description": "x", "parent": "first-eval"},
+    )
+    assert status == 400
+    assert "error" in json.loads(body)
+    assert not (first / "nested").exists()
+
+
+def test_scaffold_rejects_parent_inside_an_eval_subdirectory(server):
+    get, root, first, second = server
+    status, _, body = get(
+        "/api/evals",
+        method="POST",
+        body={"name": "nested", "description": "x", "parent": "first-eval/tasks"},
+    )
+    assert status == 400
+    assert "error" in json.loads(body)
+    assert not (first / "tasks" / "nested").exists()
+
+
+def test_scaffold_parent_at_a_legitimate_suite_subdirectory_still_works(server):
+    # A plain subfolder of the studio root that is not itself (or inside)
+    # an Eval - e.g. a suite grouping folder - stays a legal scaffold target
+    get, root, first, second = server
+    (root / "group").mkdir()
+    status, _, body = get(
+        "/api/evals",
+        method="POST",
+        body={"name": "grouped-eval", "description": "x", "parent": "group"},
+    )
+    assert status == 201, body
+    data = json.loads(body)
+    assert data["slug"] == "grouped-eval"
+    assert (root / "group" / "grouped-eval" / "eval.yaml").is_file()
 
 
 # --- PUT /api/evals/<slug>/file -----------------------------------------------
@@ -1008,6 +1086,102 @@ def test_run_config_missing_runner_key_returns_json_error(server):
     assert status == 500
     assert ctype == "application/json"
     assert "error" in json.loads(body)
+
+
+# --- Content-Type gate (CSRF hardening) --------------------------------------
+#
+# A simple HTML form cannot set Content-Type to application/json (only
+# text/plain, application/x-www-form-urlencoded or multipart/form-data
+# are form-submittable), so gating on it kills cross-origin CSRF via a
+# plain <form>; a cross-origin fetch that lies and sends
+# application/json anyway triggers a CORS preflight, which studio.py
+# never answers (its 501 kills the real request before it's sent).
+
+
+def test_write_endpoint_rejects_non_json_content_type(server):
+    get, root, first, second = server
+    status, ctype, body = get(
+        "/api/evals",
+        method="POST",
+        body={"name": "third-eval", "description": "x"},
+        headers={"Content-Type": "text/plain"},
+    )
+    assert status == 415
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+    # never scaffolded
+    assert not (root / "third-eval").exists()
+
+
+def test_write_endpoint_rejects_missing_content_type(server):
+    get, *_ = server
+    status, ctype, body = get(
+        "/api/evals",
+        method="POST",
+        body={"name": "third-eval", "description": "x"},
+        headers={"Content-Type": None},
+    )
+    assert status == 415
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+
+
+def test_write_endpoint_accepts_json_content_type_with_charset(server):
+    # A real JSON POST may carry a charset parameter - the gate must
+    # match on substring, not exact-equal
+    get, *_ = server
+    status, _, body = get(
+        "/api/evals",
+        method="POST",
+        body={"name": "third-eval", "description": "x"},
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+    assert status == 201, body
+
+
+# --- X-Studio-Key auth --------------------------------------------------------
+#
+# Studio binds 127.0.0.1, but loopback is not private: a hostile page open
+# in the same browser can still reach it (no SOP for cross-origin GET/simple
+# POST, no auth cookie required). A per-run random token, out of band from
+# cookies, closes that: every /api/* request must carry it.
+
+
+def test_api_request_without_key_header_is_403(server):
+    get, *_ = server
+    status, ctype, body = get("/api/evals", headers={"X-Studio-Key": None})
+    assert status == 403
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+
+
+def test_api_request_with_wrong_key_is_403(server):
+    get, *_ = server
+    status, ctype, body = get("/api/evals", headers={"X-Studio-Key": "not-the-token"})
+    assert status == 403
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+
+
+def test_api_request_with_correct_key_is_200(server):
+    get, *_ = server
+    status, ctype, body = get("/api/evals")  # the fixture's default header
+    assert status == 200
+    assert ctype == "application/json"
+
+
+def test_html_is_served_without_any_key(server):
+    get, *_ = server
+    status, ctype, body = get("/", headers={"X-Studio-Key": None})
+    assert status == 200
+    assert ctype == "text/html"
+
+
+def test_generate_token_returns_distinct_urlsafe_strings():
+    a, b = studio.generate_token(), studio.generate_token()
+    assert a != b
+    assert len(a) >= 16
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", a)
 
 
 # --- misc routing ------------------------------------------------------------

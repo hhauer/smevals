@@ -1,9 +1,16 @@
 """smevals studio: a local, read-write authoring environment for Evals.
 
-`run_studio(root, port)` serves the single-page app plus a JSON API over
-every Eval discovered under root (Suite semantics identical to serve's
-discovery - see cli.discover_evals). Binds 127.0.0.1 only: studio writes
-files and executes runners, so it must never be exposed on the network.
+`run_studio(root, port, token)` serves the single-page app plus a JSON
+API over every Eval discovered under root (Suite semantics identical to
+serve's discovery - see cli.discover_evals). Binds 127.0.0.1 only: studio
+writes files and executes runners, so it must never be exposed on the
+network - and binding loopback alone is not enough, since any web page
+open in the same browser can still reach it (there is no same-origin
+restriction on cross-origin GET or simple POST). Every /api/* request
+must carry token in an X-Studio-Key header, generated fresh per run by
+generate_token(); GET / (the HTML shell) stays unauthenticated, since it
+carries no data and is useless without the token that only the CLI's
+startup message shows.
 
 Task 2 carried the read APIs: the shelf listing, one Eval's file tree +
 validation, and guarded file reads. This module now also carries the
@@ -17,6 +24,7 @@ run_checks, score_and_outcome) so Studio never re-implements them.
 import hashlib
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -162,6 +170,26 @@ def resolve_within(base_dir, rel):
     return target
 
 
+def nesting_eval_dir(root, parent_dir):
+    """The Eval dir (one with an eval.yaml) at or above parent_dir, up to
+    and including root - or None.
+
+    Guards scaffolding: a new Eval must never land inside an existing
+    one's directory tree. Without this, POST /api/evals's parent param
+    (only root-containment checked) can target an existing Eval's runs/
+    (bypassing the immutability invariant) or any other spot inside it
+    (nesting an Eval discover_evals would never find, since it stops
+    walking at the first eval.yaml it sees).
+    """
+    d = parent_dir
+    while True:
+        if (d / "eval.yaml").is_file():
+            return d
+        if d == root:
+            return None
+        d = d.parent
+
+
 def resolve_eval_file(eval_dir, rel):
     "Resolve rel to an existing file within an Eval dir, or None (see resolve_within)"
     target = resolve_within(eval_dir, rel)
@@ -261,8 +289,13 @@ def llm_models():
     return parse_llm_models_list(result.stdout)
 
 
-def run_studio(root, port):
-    "Serve smevals Studio over every Eval discovered under root"
+def generate_token():
+    "A fresh random URL-safe token, unique per `smevals studio` run"
+    return secrets.token_urlsafe(32)
+
+
+def run_studio(root, port, token):
+    "Serve smevals Studio over every Eval discovered under root, gated by token"
     root = Path(root).resolve()
 
     # Job table + one-active-job-per-eval bookkeeping, and the llm-models
@@ -332,8 +365,21 @@ def run_studio(root, port):
                 traceback.print_exc(file=sys.stderr)
                 self.reply_error(500, f"internal error: {ex}")
 
+        def authorized(self, path):
+            """True if path may proceed: every /api/* route needs the
+            correct X-Studio-Key header; GET / (the HTML shell) does not -
+            it carries no data and is useless without the token only the
+            CLI's startup message prints.
+            """
+            return (
+                not path.startswith("/api/")
+                or self.headers.get("X-Studio-Key") == token
+            )
+
         def dispatch_get(self):
             parts = urllib.parse.urlsplit(self.path)
+            if not self.authorized(parts.path):
+                return self.reply_error(403, "missing or invalid X-Studio-Key header")
             if parts.path == "/":
                 return self.reply(200, studio_html().encode(), "text/html")
             if parts.path == "/api/evals":
@@ -359,6 +405,8 @@ def run_studio(root, port):
 
         def dispatch_post(self):
             parts = urllib.parse.urlsplit(self.path)
+            if not self.authorized(parts.path):
+                return self.reply_error(403, "missing or invalid X-Studio-Key header")
             if parts.path == "/api/evals":
                 return self.handle_scaffold()
             if parts.path.startswith("/api/evals/"):
@@ -376,6 +424,8 @@ def run_studio(root, port):
 
         def dispatch_put(self):
             parts = urllib.parse.urlsplit(self.path)
+            if not self.authorized(parts.path):
+                return self.reply_error(403, "missing or invalid X-Studio-Key header")
             if parts.path.startswith("/api/evals/"):
                 slug, _, tail = parts.path.removeprefix("/api/evals/").partition("/")
                 eval_dir = self.resolve_eval(slug)
@@ -394,7 +444,21 @@ def run_studio(root, port):
             return eval_dir
 
         def read_json_body(self):
-            "The request body parsed as a JSON object, or None (already replied 400)"
+            """The request body parsed as a JSON object, or None (already
+            replied 400/415).
+
+            The Content-Type check runs before anything reads the body: a
+            plain HTML <form> cannot set Content-Type to application/json
+            (only text/plain, application/x-www-form-urlencoded or
+            multipart/form-data are form-submittable), so this alone
+            defeats simple-request CSRF against every write endpoint. A
+            cross-origin fetch that lies about its Content-Type instead
+            triggers a CORS preflight, which this server never answers.
+            """
+            content_type = self.headers.get("Content-Type") or ""
+            if "application/json" not in content_type:
+                self.reply_error(415, "request body must be application/json")
+                return None
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b""
             try:
@@ -451,6 +515,12 @@ def run_studio(root, port):
                 parent_dir = resolve_within(root, parent_rel)
                 if parent_dir is None:
                     return self.reply_error(400, "parent escapes the studio root")
+            if nesting_eval_dir(root, parent_dir) is not None:
+                return self.reply_error(
+                    400,
+                    "parent is inside an existing eval - evals cannot nest "
+                    "inside another eval or its runs/",
+                )
             try:
                 eval_dir = scaffold_eval(
                     parent_dir, body.get("name"), body.get("description", "")

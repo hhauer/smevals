@@ -289,7 +289,7 @@ Builds the same web UI as a self-contained static site (default `build/`), copyi
 smevals studio [DIR] [-p PORT]
 ```
 
-A local, read-write authoring environment: a shelf of Evals, a workbench with schema-aware form/raw editors and live validation for Tasks, Configs, and Graders, and a bench to run a single Task or dry-run a Grader edit against an existing Run - unsaved edits included, nothing written under `runs/` until you commit to it. DIR defaults to the current directory (Suite semantics identical to `serve`); default port 7002. Binds `127.0.0.1` only with no auth - it writes files and executes Runners and Checkers, so never expose it beyond your machine.
+A local, read-write authoring environment: a shelf of Evals, a workbench with schema-aware form/raw editors and live validation for Tasks, Configs, and Graders, and a bench to run a single Task or dry-run a Grader edit against an existing Run - unsaved edits included, nothing written under `runs/` until you commit to it. DIR defaults to the current directory (Suite semantics identical to `serve`); default port 7002. Binds `127.0.0.1` only - it writes files and executes Runners and Checkers, so never expose it beyond your machine. It also prints its URL with a random `?k=` token that every request must carry, since a loopback bind alone doesn't stop a hostile web page open in the same browser from reaching it.
 
 ```
 smevals docs
