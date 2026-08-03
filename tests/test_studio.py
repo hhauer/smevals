@@ -129,6 +129,32 @@ def test_discovery_reports_last_run(server):
     assert entries["second-eval"]["last_run_iso"] is None
 
 
+def test_discovery_disambiguates_duplicate_names(server):
+    # Two Evals that declare the identical name would slug identically -
+    # resolve_eval_slugs (serve/build) fails loud on this; Studio is a
+    # live UI where silently dropping one from the shelf is worse, so it
+    # disambiguates instead. discover_evals visits "first-eval" before
+    # "second-eval" (sorted iteration), so the second collider gets -2.
+    get, root, first, second = server
+    (first / "eval.yaml").write_text(
+        yaml.safe_dump({"name": "dup", "description": "one"})
+    )
+    (second / "eval.yaml").write_text(
+        yaml.safe_dump({"name": "dup", "description": "two"})
+    )
+
+    entries = {e["slug"]: e for e in json.loads(get("/api/evals")[2])}
+    assert set(entries) == {"dup", "dup-2"}
+    assert entries["dup"]["description"] == "one"
+    assert entries["dup-2"]["description"] == "two"
+
+    # Both Evals stay reachable at their disambiguated slug
+    status, _, _ = get("/api/evals/dup")
+    assert status == 200
+    status, _, _ = get("/api/evals/dup-2")
+    assert status == 200
+
+
 # --- GET /api/evals/<slug> ---------------------------------------------------
 
 
@@ -240,6 +266,16 @@ def test_file_read_rejects_symlink_escape(server):
     (first / "escape-link").symlink_to(outside)
     status, _, _ = get("/api/evals/first-eval/file?path=escape-link")
     assert status == 404
+
+
+def test_file_read_rejects_null_byte_without_crashing(server):
+    # A null byte makes Path.resolve() raise ValueError - must come back
+    # as a clean 404, not an empty reply with a dead request thread
+    get, *_ = server
+    status, ctype, body = get("/api/evals/first-eval/file?path=eval.yaml%00.txt")
+    assert status == 404
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
 
 
 # --- misc routing ------------------------------------------------------------

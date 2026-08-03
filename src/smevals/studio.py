@@ -32,12 +32,23 @@ def studio_html():
 
 
 def discover_slugs(root):
-    "Map slug -> eval path for every Eval under root; empty root yields {}"
+    """Map slug -> eval path for every Eval under root; empty root yields {}.
+
+    Two Evals whose names slug identically are disambiguated with a
+    numeric suffix (-2, -3, ...) rather than dropped: resolve_eval_slugs
+    (serve/build) fails loud on the same collision, which is right for a
+    batch CLI command, but Studio is a live UI - silently hiding an Eval
+    because another one collided with it is worse than a numbered slug.
+    """
     evals = {}
     for eval_path in discover_evals(root):
         doc = load_eval(eval_path)
-        slug = slugify(doc.get("name") or eval_path.name)
-        evals.setdefault(slug, eval_path)
+        slug = base_slug = slugify(doc.get("name") or eval_path.name)
+        suffix = 2
+        while slug in evals:
+            slug = f"{base_slug}-{suffix}"
+            suffix += 1
+        evals[slug] = eval_path
     return evals
 
 
@@ -111,12 +122,17 @@ def resolve_eval_file(eval_dir, rel):
     Rejects ../ escapes, absolute paths and symlinks resolving outside the
     Eval dir - same is_relative_to containment check serve's site.py uses,
     which (unlike a string-prefix check) can't be fooled by a sibling
-    directory whose name merely starts with the same prefix.
+    directory whose name merely starts with the same prefix. A path
+    carrying an embedded null byte makes Path.resolve() raise instead of
+    returning - that is not-found too, not a server error.
     """
     if not rel:
         return None
     eval_root = eval_dir.resolve()
-    target = (eval_dir / rel).resolve()
+    try:
+        target = (eval_dir / rel).resolve()
+    except (OSError, ValueError):
+        return None
     if not target.is_relative_to(eval_root) or not target.is_file():
         return None
     return target
