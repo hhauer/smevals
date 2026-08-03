@@ -50,7 +50,14 @@ from .cli import (
     score_and_outcome,
     slugify,
 )
-from .site import cached_yaml, collect_eval, now_iso
+from .site import (
+    cached_yaml,
+    collect_eval,
+    eval_results,
+    group_stats,
+    now_iso,
+    results_matrix,
+)
 
 # Directories with a fixed meaning in the canonical Eval layout; any other
 # top-level file or directory groups under "other" in the file tree.
@@ -82,21 +89,49 @@ def discover_slugs(root):
     return evals
 
 
-def last_run_iso(eval_path):
-    "The most recent Run's started timestamp, or None if there are no Runs"
+def run_stats(eval_path):
+    """The most recent Run's started timestamp plus total/failed counts,
+    from one rglob pass over an Eval's runs/ - the shelf strip's cheap
+    counts ride this walk rather than paying for a second one.
+    """
     runs_root = eval_path / "runs"
     if not runs_root.exists():
+        return None, 0, 0
+    last = None
+    total = failed = 0
+    for run_file in runs_root.rglob("run.yaml"):
+        run = cached_yaml(run_file)
+        total += 1
+        if run_failed(run):
+            failed += 1
+        started = run.get("started")
+        if started and (last is None or started > last):
+            last = started
+    return last, total, failed
+
+
+def best_group(eval_path):
+    "Highest-mean (config, model) group under the default grader, or None - the shelf strip's best score"
+    data = collect_eval(eval_path)
+    grader_name = data["eval"]["default_grader"]
+    if grader_name is None:
         return None
-    started = [
-        cached_yaml(run_file).get("started") for run_file in runs_root.rglob("run.yaml")
-    ]
-    started = [s for s in started if s]
-    return max(started) if started else None
+    groups = group_stats(data["rows"], grader_name)
+    if not groups or groups[0]["mean"] is None:
+        return None
+    best = groups[0]
+    return {
+        "model": best["model"],
+        "config": best["config"],
+        "score": round(best["mean"], 3),
+        "runs": best["n"],
+    }
 
 
 def eval_summary(slug, eval_path):
     "The /api/evals entry for one Eval"
     doc = cached_yaml(eval_path / "eval.yaml") or {}
+    last_run_iso, total, failed = run_stats(eval_path)
     return {
         "slug": slug,
         "name": doc.get("name") or eval_path.name,
@@ -105,8 +140,10 @@ def eval_summary(slug, eval_path):
             kind: len(list((eval_path / kind).glob("*.yaml")))
             for kind in ("tasks", "configs", "graders")
         },
-        "last_run_iso": last_run_iso(eval_path),
+        "last_run_iso": last_run_iso,
         "problems": len(validate_eval(eval_path)),
+        "runs": {"total": total, "failed": failed},
+        "best": best_group(eval_path),
     }
 
 
@@ -395,6 +432,8 @@ def run_studio(root, port, token):
                 return self.reply_json(
                     {"models": sorted(config_models(root) | cached_llm_models())}
                 )
+            if parts.path == "/api/results":
+                return self.reply_json(results_matrix(discover_slugs(root)))
             if parts.path.startswith("/api/jobs/"):
                 return self.handle_get_job(parts.path.removeprefix("/api/jobs/"))
             if parts.path.startswith("/api/evals/"):
@@ -482,6 +521,9 @@ def run_studio(root, port, token):
                 return self.serve_file(eval_dir, rel)
             if tail == "runs":
                 return self.reply_json(collect_eval(eval_dir)["rows"])
+            if tail == "results":
+                grader_name = urllib.parse.parse_qs(query).get("grader", ["default"])[0]
+                return self.reply_json(eval_results(eval_dir, grader_name))
             self.reply_error(404, "not found")
 
         def serve_file(self, eval_dir, rel):

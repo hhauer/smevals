@@ -8,6 +8,7 @@ import time
 
 import click
 import pytest
+import yaml
 
 from conftest import read_yaml, write_grade, write_run
 from smevals import site
@@ -98,6 +99,312 @@ def test_eval_summary_picks_best_mean(make_eval, tmp_path):
         "score": 0.9,
         "runs": 2,
     }
+
+
+# --- results aggregation (group_stats / eval_results / results_matrix) ---
+#
+# Verification corpus for the reporter semantics documented in the
+# scratchpad reporter's README/verification.md: failed-run exclusion,
+# stale-grade detection, graded-but-unscored gaps, target-n inference and
+# the all-runs-failed model appearing at n=0 rather than vanishing.
+
+
+def results_eval(make_eval, tmp_path, name="results"):
+    "A bare eval scaffold plus its parsed default grader doc, for hand-built runs/grades"
+    eval_dir = make_eval(name=name, runner=None, root=tmp_path)
+    grader_doc = read_yaml(eval_dir / "graders" / "default.yaml")
+    return eval_dir, grader_doc
+
+
+def test_group_stats_excludes_failed_runs_from_means(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    write_grade(write_run(runs_root, model="m-1"), grader_doc, score=1.0)
+    write_grade(write_run(runs_root, model="m-1"), grader_doc, score=0.6)
+    # A failed Run that was graded anyway (e.g. graded before the failure
+    # was noticed) - a harness error is never evidence, so it must be
+    # excluded from the mean and from n, same as `smevals report`
+    failed = write_run(runs_root, model="m-1", exit_code=1, output="")
+    write_grade(failed, grader_doc, outcome="fail", score=0.0)
+
+    data = site.collect_eval(eval_dir)
+    (group,) = site.group_stats(data["rows"], "default")
+    assert group["config"] == "default"
+    assert group["model"] == "m-1"
+    assert group["n"] == 2
+    assert group["scored_n"] == 2
+    assert group["mean"] == pytest.approx(0.8)
+
+
+def test_group_stats_scored_n_gap_for_unscored_grade(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    write_grade(write_run(runs_root, model="m-1"), grader_doc, score=1.0)
+    # A required Check failed before the scoring Check ran: graded, but
+    # unscored - counted in n, not in scored_n
+    write_grade(
+        write_run(runs_root, model="m-1"), grader_doc, outcome="fail", score=None
+    )
+
+    data = site.collect_eval(eval_dir)
+    (group,) = site.group_stats(data["rows"], "default")
+    assert group["n"] == 2
+    assert group["scored_n"] == 1
+    assert group["mean"] == 1.0
+    assert group["fail_count"] == 1
+
+
+def test_group_stats_metrics_summarize_bool_and_numeric(make_eval, tmp_path):
+    # Mirrors cli.render_model_blocks: a metric key whose every value is a
+    # bool becomes a true-rate; anything else becomes mean +- stderr
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    write_grade(
+        write_run(runs_root, model="m-1"),
+        grader_doc,
+        score=1.0,
+        checks=[
+            {
+                "checker": "c",
+                "ok": True,
+                "metrics": {"latency": 2.0, "status_correct": True},
+            }
+        ],
+    )
+    write_grade(
+        write_run(runs_root, model="m-1"),
+        grader_doc,
+        score=1.0,
+        checks=[
+            {
+                "checker": "c",
+                "ok": True,
+                "metrics": {"latency": 4.0, "status_correct": False},
+            }
+        ],
+    )
+
+    data = site.collect_eval(eval_dir)
+    (group,) = site.group_stats(data["rows"], "default")
+    assert group["metrics"]["latency"] == {
+        "type": "numeric",
+        "mean": 3.0,
+        "stderr": 1.0,
+        "n": 2,
+    }
+    assert group["metrics"]["status_correct"] == {
+        "type": "bool",
+        "true_rate": 0.5,
+        "n": 2,
+    }
+
+
+def test_group_stats_tag_counts_and_rates(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    write_grade(
+        write_run(runs_root, model="m-1"), grader_doc, score=1.0, tags=["hat", "bike"]
+    )
+    write_grade(
+        write_run(runs_root, model="m-1"),
+        grader_doc,
+        outcome="fail",
+        score=0.0,
+        tags=["hat"],
+    )
+
+    data = site.collect_eval(eval_dir)
+    (group,) = site.group_stats(data["rows"], "default")
+    assert group["tag_counts"] == {"hat": 2, "bike": 1}
+    assert group["fail_count"] == 1
+    assert group["pass_rate"] == pytest.approx(0.5)
+
+
+def test_group_stats_sorted_by_mean_desc_then_model(make_eval, tmp_path):
+    # Same fixture as test_report.py's leaderboard-ordering test - the
+    # ranking rule (mean descending, model name breaks ties) must agree
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    for model, scores in [
+        ("model-a", [1.0, 0.8]),
+        ("model-b", [0.6]),
+        ("model-c", [0.6]),
+        ("model-d", [0.5]),
+    ]:
+        for score in scores:
+            write_grade(write_run(runs_root, model=model), grader_doc, score=score)
+
+    data = site.collect_eval(eval_dir)
+    groups = site.group_stats(data["rows"], "default")
+    assert [g["model"] for g in groups] == ["model-a", "model-b", "model-c", "model-d"]
+
+
+def test_group_stats_reconciles_with_report_mean_stderr(invoke, make_eval, tmp_path):
+    # Ground truth: `smevals report`'s own rendered leaderboard figure for
+    # this fixture (test_report.py asserts the identical string)
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    for score in (1.0, 0.8):
+        write_grade(write_run(runs_root, model="model-a"), grader_doc, score=score)
+
+    result = invoke("report", eval_dir)
+    assert "0.90 ±0.10" in result.output
+
+    data = site.collect_eval(eval_dir)
+    (group,) = site.group_stats(data["rows"], "default")
+    assert f"{group['mean']:.2f} ±{group['stderr']:.2f}" == "0.90 ±0.10"
+
+
+def test_eval_results_shape_and_excluded_failed(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    write_grade(write_run(runs_root, model="m-1"), grader_doc, score=1.0)
+    failed = write_run(runs_root, model="m-1", exit_code=1, output="")
+    write_grade(failed, grader_doc, outcome="fail", score=0.0)
+
+    results = site.eval_results(eval_dir, "default")
+    assert results["grader"] == "default"
+    assert results["graders"] == ["default"]
+    assert results["total"] == 1
+    assert results["excluded_failed"] == 1
+    assert results["ungraded"] == 0
+    assert results["stale"] == 0
+    assert len(results["groups"]) == 1
+    assert "generated" in results
+
+
+def test_eval_results_ungraded_counts_non_failed_without_grade(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    write_grade(write_run(runs_root, model="m-1"), grader_doc, score=1.0)
+    write_run(runs_root, model="m-1")  # never graded
+
+    results = site.eval_results(eval_dir, "default")
+    assert results["ungraded"] == 1
+    assert results["total"] == 1
+
+
+def test_eval_results_stale_detection_after_grader_edit(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    write_grade(write_run(eval_dir / "runs", model="m-1"), grader_doc, score=1.0)
+
+    # Edit the grader after grading: the recorded snapshot no longer
+    # parses equal to the current spec
+    (eval_dir / "graders" / "default.yaml").write_text(
+        yaml.safe_dump(
+            {"name": "default", "checks": [{"checker": "contains", "value": "goodbye"}]}
+        )
+    )
+
+    results = site.eval_results(eval_dir, "default")
+    assert results["stale"] == 1
+
+
+def test_eval_results_grader_fallback_when_named_grader_missing(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    write_grade(write_run(eval_dir / "runs", model="m-1"), grader_doc, score=1.0)
+
+    results = site.eval_results(eval_dir, "nonexistent")
+    assert results["grader"] == "default"  # falls back like collect_eval/serve do
+
+
+def test_eval_results_with_no_graders_returns_empty_shape(make_eval, tmp_path):
+    # An Eval with no graders/*.yaml at all: nothing to fall back to
+    eval_dir = make_eval(name="results", runner=None, root=tmp_path, graders={})
+    write_run(eval_dir / "runs", model="m-1")
+
+    results = site.eval_results(eval_dir, "default")
+    assert results["grader"] is None
+    assert results["graders"] == []
+    assert results["groups"] == []
+    assert results["ungraded"] == 0
+    assert results["excluded_failed"] == 0
+
+
+def test_eval_results_tags_aggregate_across_groups(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    write_grade(write_run(runs_root, model="m-1"), grader_doc, score=1.0, tags=["hat"])
+    write_grade(
+        write_run(runs_root, model="m-2"), grader_doc, score=1.0, tags=["hat", "bike"]
+    )
+
+    results = site.eval_results(eval_dir, "default")
+    assert results["tags"] == {"hat": 2, "bike": 1}
+
+
+def test_results_matrix_target_n_inference_and_incomplete(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    for _ in range(3):
+        write_grade(write_run(runs_root, model="model-a"), grader_doc, score=1.0)
+    write_grade(write_run(runs_root, model="model-b"), grader_doc, score=0.5)
+
+    matrix = site.results_matrix({"results": eval_dir})
+    assert matrix["evals"] == ["results"]
+    assert set(matrix["models"]) == {"model-a", "model-b"}
+    assert matrix["matrix"]["model-a"]["results"] == {
+        "mean": 1.0,
+        "n": 3,
+        "target_n": 3,
+        "incomplete": False,
+    }
+    assert matrix["matrix"]["model-b"]["results"] == {
+        "mean": 0.5,
+        "n": 1,
+        "target_n": 3,
+        "incomplete": True,
+    }
+    assert "generated" in matrix
+
+
+def test_results_matrix_all_failed_model_present_at_n_zero(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    for _ in range(2):
+        write_grade(write_run(runs_root, model="good-model"), grader_doc, score=1.0)
+    write_run(runs_root, model="flaky-model", exit_code=1, output="")
+
+    matrix = site.results_matrix({"results": eval_dir})
+    assert "flaky-model" in matrix["models"]
+    assert matrix["matrix"]["flaky-model"]["results"] == {
+        "mean": None,
+        "n": 0,
+        "target_n": 2,
+        "incomplete": True,
+    }
+
+
+def test_results_matrix_best_per_eval_derivable(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    write_grade(write_run(runs_root, model="model-a"), grader_doc, score=1.0)
+    write_grade(write_run(runs_root, model="model-b"), grader_doc, score=0.5)
+
+    matrix = site.results_matrix({"results": eval_dir})
+    best_model = max(
+        matrix["models"], key=lambda m: matrix["matrix"][m]["results"]["mean"]
+    )
+    assert best_model == "model-a"
+
+
+def test_results_matrix_uses_busiest_config(make_eval, tmp_path):
+    # design note from the reporter README: an eval running one model
+    # under two configs shows only the busiest config in the matrix
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    runs_root = eval_dir / "runs"
+    for _ in range(2):
+        write_grade(
+            write_run(runs_root, model="model-a", config="default"),
+            grader_doc,
+            score=1.0,
+        )
+    write_grade(
+        write_run(runs_root, model="model-a", config="alt"), grader_doc, score=0.2
+    )
+
+    matrix = site.results_matrix({"results": eval_dir})
+    assert matrix["matrix"]["model-a"]["results"]["mean"] == 1.0
 
 
 # --- static build --------------------------------------------------------

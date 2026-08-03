@@ -770,9 +770,17 @@ def collect_grade_rows(runs_root, grader_name, grader):
 
 
 def mean_stderr(values):
+    "The (mean, stderr) of a list of scores; stderr is None with fewer than 2 values - nothing to estimate spread from"
     mean = sum(values) / len(values)
-    if len(values) > 1:
-        stderr = statistics.stdev(values) / math.sqrt(len(values))
+    stderr = (
+        statistics.stdev(values) / math.sqrt(len(values)) if len(values) > 1 else None
+    )
+    return mean, stderr
+
+
+def format_mean_stderr(mean, stderr):
+    "Render a (mean, stderr) pair the way every report table displays it"
+    if stderr is not None:
         return f"{mean:.2f} ±{stderr:.2f}"
     return f"{mean:.2f}"
 
@@ -798,7 +806,7 @@ def render_leaderboard(rows):
     entries = []
     for (config, model), group in group_rows(rows).items():
         scores, counts = group_summary(group)
-        display = mean_stderr(scores) if scores else "-"
+        display = format_mean_stderr(*mean_stderr(scores)) if scores else "-"
         sort_key = sum(scores) / len(scores) if scores else -1
         entries.append((sort_key, display, model, config, counts))
     entries.sort(key=lambda e: (-e[0], e[2]))
@@ -847,14 +855,14 @@ def render_model_blocks(rows, by_task):
     ):
         scores, counts = group_summary(group)
         lines += ["", f"## {model} ({config})", ""]
-        score_display = mean_stderr(scores) if scores else "-"
+        score_display = format_mean_stderr(*mean_stderr(scores)) if scores else "-"
         lines.append(f"- score: {score_display} over {counts}")
         for key in sorted({k for r in group for k in r["metrics"]}):
             values = [r["metrics"][key] for r in group if key in r["metrics"]]
             if all(isinstance(v, bool) for v in values):
                 display = f"{sum(values) / len(values):.0%}"
             else:
-                display = mean_stderr([float(v) for v in values])
+                display = format_mean_stderr(*mean_stderr([float(v) for v in values]))
             lines.append(f"- {key}: {display}")
         tag_counts = {}
         for row in group:
@@ -880,6 +888,10 @@ def render_model_blocks(rows, by_task):
                 task_scores = [
                     r["score"] for r in tasks[task_name] if r["score"] is not None
                 ]
-                display = mean_stderr(task_scores) if task_scores else "-"
+                display = (
+                    format_mean_stderr(*mean_stderr(task_scores))
+                    if task_scores
+                    else "-"
+                )
                 lines.append(f"  - {task_name}: {display}")
     return lines

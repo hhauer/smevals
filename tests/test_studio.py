@@ -20,8 +20,8 @@ import time
 import pytest
 import yaml
 
-from conftest import python_script, read_yaml, write_executable
-from smevals import studio
+from conftest import python_script, read_yaml, write_executable, write_grade, write_run
+from smevals import site, studio
 from smevals.authoring import FILE_SCHEMAS, scaffold_eval
 from smevals.cli import scalar_env_vars
 
@@ -280,6 +280,46 @@ def test_discovery_disambiguates_duplicate_names(server):
     assert status == 200
     status, _, _ = get("/api/evals/dup-2")
     assert status == 200
+
+
+def test_discovery_reports_runs_counts(server):
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(write_run(first / "runs", model="m-1"), grader_doc, score=1.0)
+    write_run(first / "runs", model="m-1", exit_code=1, output="")
+
+    entries = {e["slug"]: e for e in json.loads(get("/api/evals")[2])}
+    assert entries["first-eval"]["runs"] == {"total": 2, "failed": 1}
+    assert entries["second-eval"]["runs"] == {"total": 0, "failed": 0}
+
+
+def test_discovery_reports_best_from_default_grader(server):
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(write_run(first / "runs", model="m-good"), grader_doc, score=1.0)
+    write_grade(write_run(first / "runs", model="m-bad"), grader_doc, score=0.2)
+
+    entries = {e["slug"]: e for e in json.loads(get("/api/evals")[2])}
+    assert entries["first-eval"]["best"] == {
+        "config": "default",
+        "model": "m-good",
+        "score": 1.0,
+        "runs": 1,
+    }
+    assert entries["second-eval"]["best"] is None
+
+
+def test_discovery_best_matches_site_eval_summary(server):
+    # The shelf strip's number must agree with serve's own index summary
+    # for the same data - "best" is not a second, forked computation
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(write_run(first / "runs", model="m-good"), grader_doc, score=1.0)
+    write_grade(write_run(first / "runs", model="m-bad"), grader_doc, score=0.2)
+
+    entries = {e["slug"]: e for e in json.loads(get("/api/evals")[2])}
+    expected = site.eval_summary("first-eval", site.collect_eval(first))["best"]
+    assert entries["first-eval"]["best"] == expected
 
 
 # --- GET /api/evals/<slug> ---------------------------------------------------
@@ -979,6 +1019,73 @@ def test_runs_listing_reuses_collect_eval(server):
     assert row["model"] == "stub-model"
     assert row["exit_code"] == 0
     assert row["grades"]["default"]["outcome"] == "pass"
+
+
+# --- GET /api/evals/<slug>/results ----------------------------------------------
+
+
+def test_eval_results_endpoint_shape(server):
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(write_run(first / "runs", model="m-1"), grader_doc, score=1.0)
+    failed = write_run(first / "runs", model="m-1", exit_code=1, output="")
+    write_grade(failed, grader_doc, outcome="fail", score=0.0)
+
+    status, ctype, body = get("/api/evals/first-eval/results")
+    assert status == 200
+    assert ctype == "application/json"
+    data = json.loads(body)
+    assert data["grader"] == "default"
+    assert data["graders"] == ["default"]
+    assert data["total"] == 1
+    assert data["excluded_failed"] == 1
+    assert len(data["groups"]) == 1
+    assert data["groups"][0]["model"] == "m-1"
+
+
+def test_eval_results_endpoint_grader_query_param(server):
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(write_run(first / "runs", model="m-1"), grader_doc, score=1.0)
+
+    status, _, body = get("/api/evals/first-eval/results?grader=default")
+    assert status == 200
+    assert json.loads(body)["grader"] == "default"
+
+
+def test_eval_results_endpoint_falls_back_for_unknown_grader(server):
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(write_run(first / "runs", model="m-1"), grader_doc, score=1.0)
+
+    status, _, body = get("/api/evals/first-eval/results?grader=nope")
+    assert status == 200
+    assert json.loads(body)["grader"] == "default"
+
+
+def test_eval_results_endpoint_unknown_eval_is_404(server):
+    get, *_ = server
+    status, ctype, body = get("/api/evals/nope/results")
+    assert status == 404
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+
+
+# --- GET /api/results ------------------------------------------------------------
+
+
+def test_results_matrix_endpoint(server):
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(write_run(first / "runs", model="m-1"), grader_doc, score=1.0)
+
+    status, ctype, body = get("/api/results")
+    assert status == 200
+    assert ctype == "application/json"
+    data = json.loads(body)
+    assert set(data["evals"]) == {"first-eval", "second-eval"}
+    assert data["matrix"]["m-1"]["first-eval"]["mean"] == 1.0
+    assert "generated" in data
 
 
 # --- GET /api/models ------------------------------------------------------------

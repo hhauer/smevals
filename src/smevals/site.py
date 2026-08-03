@@ -25,6 +25,8 @@ from pathlib import Path
 
 import yaml
 
+from .cli import grade_matches_grader, mean_stderr, run_failed
+
 _yaml_cache = {}
 
 
@@ -146,6 +148,249 @@ def eval_summary(slug, data):
 
 def grader_list(data):
     return sorted(data["eval"]["graders"])
+
+
+# --- results aggregation --------------------------------------------------
+#
+# Reporter semantics (adopted from the scratchpad summarize.py prototype):
+# a failed Run (non-zero exit_code) is a harness error, not evidence, and
+# is excluded from every mean; a Grade's staleness is checked against the
+# Eval's current grader spec; an Eval's target sample size is inferred as
+# the highest non-failed run count seen for any (config, model) pair, and
+# a model whose every Run failed is still shown (at n=0) rather than
+# silently vanishing. group_stats/eval_results/results_matrix are pure
+# functions over collect_eval's output - no I/O beyond what collect_eval
+# and grade_matches_grader already do.
+
+
+def grade_metrics(grade):
+    "Merge every Check's metrics dict into one, like cli.collect_grade_rows does"
+    metrics = {}
+    for check in grade.get("checks") or []:
+        metrics.update(check.get("metrics") or {})
+    return metrics
+
+
+def group_stats(rows, grader_name):
+    """Group collect_eval rows by (config, model) into per-group score
+    stats: {config, model, n, scored_n, mean, stderr, pass_rate,
+    fail_count, tag_counts, metrics}, sorted by mean descending then
+    model (reporter's ranking rule).
+
+    A failed Run never reaches a group; a non-failed Run with no Grade
+    from grader_name is not counted here either (see eval_results'
+    "ungraded" for that gap - group_stats only summarizes what was
+    graded). metrics summarizes each key exactly as
+    cli.render_model_blocks does: a key whose every value is a bool
+    becomes a true-rate, anything else becomes mean +- stderr.
+    """
+    groups = {}
+    for row in rows:
+        if run_failed(row):
+            continue
+        grade = row["grades"].get(grader_name)
+        if grade is None:
+            continue
+        groups.setdefault((row["config"], row["model"]), []).append(grade)
+
+    stats = []
+    for (config, model), grades in groups.items():
+        n = len(grades)
+        scores = [g["score"] for g in grades if g.get("score") is not None]
+        mean, stderr = mean_stderr(scores) if scores else (None, None)
+        pass_rate = sum(g.get("outcome") == "pass" for g in grades) / n if n else 0.0
+        fail_count = sum(g.get("outcome") != "pass" for g in grades)
+
+        tag_counts = {}
+        for grade in grades:
+            for tag in grade.get("tags") or []:
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+        metrics_per_grade = [grade_metrics(g) for g in grades]
+        metrics = {}
+        for key in sorted({k for m in metrics_per_grade for k in m}):
+            values = [m[key] for m in metrics_per_grade if key in m]
+            if all(isinstance(v, bool) for v in values):
+                metrics[key] = {
+                    "type": "bool",
+                    "true_rate": sum(values) / len(values),
+                    "n": len(values),
+                }
+            else:
+                m_mean, m_stderr = mean_stderr([float(v) for v in values])
+                metrics[key] = {
+                    "type": "numeric",
+                    "mean": m_mean,
+                    "stderr": m_stderr,
+                    "n": len(values),
+                }
+
+        stats.append(
+            {
+                "config": config,
+                "model": model,
+                "n": n,
+                "scored_n": len(scores),
+                "mean": mean,
+                "stderr": stderr,
+                "pass_rate": pass_rate,
+                "fail_count": fail_count,
+                "tag_counts": tag_counts,
+                "metrics": metrics,
+            }
+        )
+    stats.sort(
+        key=lambda s: (-(s["mean"] if s["mean"] is not None else -1.0), s["model"])
+    )
+    return stats
+
+
+def eval_results(eval_path, grader_name="default"):
+    """One Eval's Results-tab document: {grader, graders, groups, tags,
+    total, excluded_failed, ungraded, stale, generated}. grader_name
+    falls back exactly like collect_eval/serve do when it names a grader
+    the Eval doesn't have.
+    """
+    data = collect_eval(eval_path, grader_name)
+    grader_name = data["eval"]["default_grader"]
+    rows = data["rows"]
+
+    if grader_name is None:
+        return {
+            "grader": None,
+            "graders": grader_list(data),
+            "groups": [],
+            "tags": {},
+            "total": 0,
+            "excluded_failed": sum(1 for row in rows if run_failed(row)),
+            "ungraded": 0,
+            "stale": 0,
+            "generated": data["generated"],
+        }
+
+    groups = group_stats(rows, grader_name)
+    tags = {}
+    for group in groups:
+        for tag, count in group["tag_counts"].items():
+            tags[tag] = tags.get(tag, 0) + count
+
+    grader_spec = data["eval"]["graders"][grader_name]
+    excluded_failed = ungraded = stale = 0
+    for row in rows:
+        if run_failed(row):
+            excluded_failed += 1
+            continue
+        grade = row["grades"].get(grader_name)
+        if grade is None:
+            ungraded += 1
+            continue
+        grade_dir = eval_path / "runs" / row["run"] / "grades" / grader_name
+        if not grade_matches_grader(grade_dir, grader_spec):
+            stale += 1
+
+    return {
+        "grader": grader_name,
+        "graders": grader_list(data),
+        "groups": groups,
+        "tags": tags,
+        "total": sum(g["n"] for g in groups),
+        "excluded_failed": excluded_failed,
+        "ungraded": ungraded,
+        "stale": stale,
+        "generated": data["generated"],
+    }
+
+
+def run_counts_by_group(rows):
+    "Non-failed run count per (config, model) - ground truth independent of grading progress"
+    counts = {}
+    for row in rows:
+        if run_failed(row) or row["config"] is None or row["model"] is None:
+            continue
+        key = (row["config"], row["model"])
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def failed_counts_by_group(rows):
+    "Failed (harness-error) run count per (config, model)"
+    counts = {}
+    for row in rows:
+        if not run_failed(row) or row["config"] is None or row["model"] is None:
+            continue
+        key = (row["config"], row["model"])
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def primary_config(groups, run_counts):
+    "The config with the most runs recorded for this Eval - almost always 'default'"
+    tally = {}
+    for group in groups:
+        tally[group["config"]] = tally.get(group["config"], 0) + group["n"]
+    if not tally:
+        for (config, _model), n in run_counts.items():
+            tally[config] = tally.get(config, 0) + n
+    if not tally:
+        return None
+    return sorted(tally.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+
+
+def results_matrix(evals):
+    """The executive summary: {evals, models, matrix: {model: {slug:
+    {mean, n, target_n, incomplete}}}, generated} - default-grader mean
+    score by model x eval, reporter semantics throughout. evals: slug ->
+    Eval Path (e.g. discover_slugs' return value).
+
+    Per eval, only the busiest config (the one with the most runs) is
+    shown - the documented limitation the reporter prototype carries: an
+    Eval genuinely running one model under two configs only shows one of
+    them here.
+    """
+    eval_ids = sorted(evals)
+    models = set()
+    matrix = {}
+    for slug in eval_ids:
+        data = collect_eval(evals[slug])
+        grader_name = data["eval"]["default_grader"]
+        rows = data["rows"]
+        run_counts = run_counts_by_group(rows)
+        failed_counts = failed_counts_by_group(rows)
+        groups = group_stats(rows, grader_name) if grader_name else []
+        config = primary_config(groups, run_counts)
+        target_n = max(run_counts.values(), default=0)
+
+        for group in groups:
+            if group["config"] != config:
+                continue
+            models.add(group["model"])
+            n = run_counts.get((config, group["model"]), group["n"])
+            matrix.setdefault(group["model"], {})[slug] = {
+                "mean": group["mean"],
+                "n": n,
+                "target_n": target_n,
+                "incomplete": n < target_n,
+            }
+        # A model whose every Run failed has zero non-failed runs and no
+        # Grade, so it never reaches `groups` above - without this it
+        # would vanish from the matrix instead of showing n=0
+        for (cfg, model), _failed in failed_counts.items():
+            if cfg != config or (cfg, model) in run_counts:
+                continue
+            models.add(model)
+            matrix.setdefault(model, {})[slug] = {
+                "mean": None,
+                "n": 0,
+                "target_n": target_n,
+                "incomplete": 0 < target_n,
+            }
+
+    return {
+        "evals": eval_ids,
+        "models": sorted(models),
+        "matrix": matrix,
+        "generated": now_iso(),
+    }
 
 
 def app_html():
