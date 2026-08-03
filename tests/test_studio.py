@@ -163,6 +163,8 @@ def test_studio_html_interpolated_tails_match_studio_py_routes():
     html = studio.studio_html()
     tails = set(re.findall(r"/api/evals/\$\{[^}]*\}/([A-Za-z0-9_]+)", html))
     assert tails, "studio.html should make nested /api/evals/<slug>/... calls"
+    # The bench (Task 6) must actually wire its run/grade/dry-run loop
+    assert {"file", "runs", "run", "grade", "dryrun"} <= tails
 
     studio_py = pathlib.Path(studio.__file__).read_text()
     served = set(re.findall(r'tail == "([A-Za-z0-9_]+)"', studio_py))

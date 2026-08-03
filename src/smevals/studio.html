@@ -713,9 +713,6 @@ textarea.raw-text:focus-visible { outline: none; box-shadow: none; border: none;
 .ctx-sub { font-size: var(--fs-xs); color: var(--text-3); margin: 0 0 var(--sp-3); }
 .ctx-note { font-size: var(--fs-sm); color: var(--text-2); }
 .ctx-note p { margin: 0 0 var(--sp-3); }
-.ctx-config-pick { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-.ctx-config-pick label { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); }
-.ctx-config-pick select { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); }
 
 /* The env mirror keeps one fixed terminal palette in both color schemes -
    it depicts the Runner's process environment, and a terminal is dark. */
@@ -817,6 +814,225 @@ textarea.raw-text:focus-visible { outline: none; box-shadow: none; border: none;
   font-weight: 500;
   color: var(--warn);
 }
+
+/* ---- bench: context-panel actions ----------------------------------------
+   Run/grade/dry-run controls live in the context panel; results speak in
+   the voices the app already has (the terminal env-block for process
+   truth, chip outlines for grades, pass/fail semantic colors). */
+.ctx-act { margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.bench-form { display: flex; flex-direction: column; gap: var(--sp-2); }
+.bench-row { display: flex; align-items: center; gap: var(--sp-2); }
+.bench-row label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  flex: none;
+  min-width: 3.4em;
+}
+.bench-row select, .bench-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.bench-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-1); }
+.bench-hint { font-size: var(--fs-xs); color: var(--text-3); }
+.job-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  margin-bottom: var(--sp-2);
+}
+.spin {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  flex: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .spin { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+}
+/* The job log borrows the env-block's terminal palette: a run is a process */
+.env-block .log-line { color: var(--eb-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.env-block .log-line.dim { color: var(--eb-dim); font-style: italic; }
+.job-log { max-height: 180px; overflow-y: auto; }
+
+/* ---- runs: meta, chips, list, detail ------------------------------------- */
+.run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  margin: var(--sp-2) 0 var(--sp-3);
+}
+.run-meta .sep, .run-id .sep { color: var(--text-3); }
+.ok-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--pass);
+}
+.ok-dot.bad { background: var(--fail); }
+.chip-grade {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.chip-grade.pass { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, transparent); }
+.chip-grade.fail { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, transparent); }
+.runs-list { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-2);
+  cursor: pointer;
+}
+.runs-list .run-row:last-child { border-bottom-color: transparent; }
+.run-row:hover { background: var(--surface-2); color: var(--text); }
+.run-id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.run-chips { display: inline-flex; gap: var(--sp-1); flex-wrap: wrap; margin-left: auto; }
+.run-when {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.run-view { padding: var(--sp-3) var(--sp-5) var(--sp-5); overflow-y: auto; }
+.fold {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-bottom: var(--sp-3);
+  background: color-mix(in srgb, var(--surface-2) 40%, transparent);
+}
+.fold summary {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  user-select: none;
+}
+.fold summary:hover { color: var(--text); }
+.fold pre {
+  margin: 0;
+  padding: 0 var(--sp-3) var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.fold-loading { padding: 0 var(--sp-3) var(--sp-3); font-size: var(--fs-xs); color: var(--text-3); font-style: italic; }
+.fold .grade-checks { padding: 0 var(--sp-3) var(--sp-2); }
+.art-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  align-items: baseline;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin: 0 0 var(--sp-3);
+}
+.run-grades { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--line); }
+.rg-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--sp-2);
+}
+.rg-note { font-size: var(--fs-xs); color: var(--text-3); margin: 0 0 var(--sp-2); }
+.grade-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; flex-wrap: wrap; }
+.rg-name { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text); }
+.rg-none { font-size: var(--fs-xs); color: var(--text-3); font-style: italic; }
+.grade-row .btn { margin-left: auto; }
+
+/* ---- check result rows (persisted grades and dry-run columns) ------------ */
+.dc { padding: 3px 0; font-size: var(--fs-xs); }
+.dc-head { display: flex; align-items: baseline; gap: var(--sp-2); }
+.dc-status { font-family: var(--font-mono); font-weight: 600; flex: none; }
+.dc-status.ok { color: var(--pass); }
+.dc-status.fail { color: var(--fail); }
+.dc-status.skipped { color: var(--text-3); }
+.dc-name { font-family: var(--font-mono); color: var(--text-2); overflow-wrap: anywhere; }
+.dc-score { font-family: var(--font-mono); color: var(--text-3); margin-left: auto; white-space: nowrap; }
+.dc-notes {
+  color: var(--text-3);
+  margin-top: 1px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 6em;
+  overflow-y: auto;
+}
+
+/* ---- dry-run comparison (the flagship): saved grade vs the current edit -- */
+.dry-panel { border-top: 1px solid var(--line); padding: var(--sp-3) var(--sp-5) var(--sp-4); }
+.dry-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.dry-head .ctx-eyebrow { margin: 0; overflow-wrap: anywhere; }
+.dry-head .btn-del { margin-left: auto; }
+.dry-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--sp-5); }
+.dry-panel.single .dry-row { grid-template-columns: 1fr; }
+@media (max-width: 800px) { .dry-row { grid-template-columns: 1fr; } }
+.dry-cell { min-width: 0; }
+.dry-labels > div {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--sp-1);
+}
+.dry-labels .ours-label { color: var(--accent); }
+.dry-sum {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding-top: var(--sp-2);
+  margin-top: var(--sp-1);
+  border-top: 1px solid var(--line);
+}
+.dry-sum .sep { color: var(--text-3); }
+.outcome-pass { color: var(--pass); font-weight: 600; }
+.outcome-fail { color: var(--fail); font-weight: 600; }
+.dry-tags { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-2); padding: var(--sp-1) 0; }
+/* One quiet accent wash marks "this value changed" - red/green stay
+   reserved for pass/fail meaning, so a diff never shouts */
+.chg { background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); border-radius: 3px; }
+.dry-note { font-size: var(--fs-xs); color: var(--text-3); margin: var(--sp-2) 0 0; }
+.dry-empty-cell { font-size: var(--fs-xs); color: var(--text-3); font-style: italic; padding: 3px 0; }
+.tree-count { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); }
 </style>
 </head>
 <body>
@@ -832,7 +1048,7 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g,
   c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const enc = encodeURIComponent;
 const view = document.getElementById("view");
-const state = { evals: null };
+const state = { evals: null, models: null };
 
 // --- fetch layer ---------------------------------------------------------
 
@@ -1599,7 +1815,12 @@ function fileHash(wb, path, raw) {
 async function loadWorkbench(slug) {
   const wb = {
     slug, detail: null, schemas: null, buffers: new Map(),
-    open: null, mirrorConfig: null, configCache: {}, err: null,
+    open: null, surface: null, mirrorConfig: null, configCache: {}, err: null,
+    // bench state: the eval's runs, the run form, the active job, and the
+    // dry-run comparison all live here so they survive file switches
+    runs: null, runsErr: null, bench: { model: "" }, benchErr: null,
+    job: null, drySel: null, dry: null, dryErr: null, dryPending: false,
+    detailsState: {}, runText: {},
   };
   state.wb = wb;
   view.innerHTML = `<div class="crumb"><a href="#/">← shelf</a></div>`;
@@ -1618,6 +1839,8 @@ async function loadWorkbench(slug) {
       .map(f => f.path.replace(/^configs\//, "").replace(/\.yaml$/, ""));
     wb.mirrorConfig = configs.includes("default") ? "default" : configs[0] || null;
     loadConfigCache(wb);
+    loadRuns(wb).then(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+    loadModels(wb);
     return wb;
   } catch (ex) {
     if (state.wb === wb) {
@@ -1649,7 +1872,8 @@ function configText(wb, name) {
   return buf ? buf.text : wb.configCache[path];
 }
 
-async function renderWorkbench(slug, fpath, rawForced) {
+// surface: { file, raw } for the editor, { runs: true, run } for the bench
+async function renderWorkbench(slug, surface) {
   document.body.classList.add("wb");
   let wb = state.wb && state.wb.slug === slug ? state.wb : null;
   if (!wb) {
@@ -1657,7 +1881,9 @@ async function renderWorkbench(slug, fpath, rawForced) {
     if (!wb) return;
     renderShell(wb);
   }
-  wb.open = fpath || null;
+  wb.surface = surface;
+  const fpath = surface.file || null;
+  wb.open = fpath;
   if (fpath && !wb.buffers.has(fpath)) {
     renderPanes(wb); // tree selection + "Loading…" editor state
     try {
@@ -1681,7 +1907,7 @@ async function renderWorkbench(slug, fpath, rawForced) {
   const buf = fpath && wb.buffers.get(fpath);
   if (buf) {
     const kind = pure.docKind(fpath);
-    buf.view = rawForced || !kind || !pure.yamlParse(buf.text).ok
+    buf.view = surface.raw || !kind || !pure.yamlParse(buf.text).ok
       ? "raw" : "form";
   }
   renderPanes(wb);
@@ -1706,7 +1932,16 @@ function renderShell(wb) {
 function renderPanes(wb) {
   renderHeadBadge(wb);
   renderTree(wb);
-  renderEditor(wb);
+  if (wb.surface && wb.surface.runs) renderRunsPane(wb);
+  else renderEditor(wb);
+  renderContext(wb);
+}
+
+// The light bench refresh: everything runs data feeds, but never the
+// editor body - callers use it while the author may be mid-keystroke.
+function renderBenchSurfaces(wb) {
+  renderTree(wb);
+  if (wb.surface && wb.surface.runs) renderRunsPane(wb);
   renderContext(wb);
 }
 
@@ -1749,11 +1984,23 @@ function renderTree(wb) {
             </button>`;
         }).join("") : `<div class="tree-empty">none yet</div>`}
       </div>`;
-  }).join("");
-  box.querySelectorAll(".tree-item").forEach(el =>
+  }).join("") + `
+    <div class="tree-group">
+      <div class="tree-group-label">Bench</div>
+      <button type="button" class="tree-item${wb.surface && wb.surface.runs ? " sel" : ""}"
+              data-goto="runs">
+        <span class="fname">runs/</span>
+        <span class="flags"><span class="tree-count">${
+          wb.runs === null ? "…" : wb.runs.length}</span></span>
+      </button>
+    </div>`;
+  box.querySelectorAll(".tree-item[data-path]").forEach(el =>
     el.addEventListener("click", () => {
       location.hash = fileHash(wb, el.dataset.path, false);
     }));
+  box.querySelector("[data-goto=runs]").addEventListener("click", () => {
+    location.hash = runsHash(wb);
+  });
 }
 
 // --- editor --------------------------------------------------------------
@@ -1814,7 +2061,8 @@ function renderEditor(wb) {
       </span>
     </div>
     <div class="ed-err" id="ed-err">${buf.err ? errorBox(buf.err) : ""}</div>
-    <div class="ed-body" id="ed-body"></div>`;
+    <div class="ed-body" id="ed-body"></div>
+    ${buf.conflict ? "" : dryPanelHtml(wb, buf)}`;
   buf.err = null;
 
   box.querySelectorAll("[data-view]").forEach(el =>
@@ -1825,6 +2073,11 @@ function renderEditor(wb) {
   box.querySelector("[data-act=save]").addEventListener("click", () => saveOpen(wb));
   const chmod = box.querySelector("[data-act=chmod]");
   if (chmod) chmod.addEventListener("click", () => saveOpen(wb, { executable: true }));
+  const dryClose = box.querySelector("[data-act=dryclose]");
+  if (dryClose) dryClose.addEventListener("click", () => {
+    wb.dry = null;
+    renderEditor(wb);
+  });
 
   const body = document.getElementById("ed-body");
   if (buf.conflict) renderConflict(wb, buf, body);
@@ -2296,6 +2549,7 @@ const ENV_CONTRACT = [
 function renderContext(wb) {
   const box = document.getElementById("wb-ctx");
   if (!box) return;
+  if (wb.surface && wb.surface.runs) return renderBenchNote(wb, box);
   const buf = wb.open && wb.buffers.get(wb.open);
   const kind = buf ? pure.docKind(buf.path) : null;
   if (kind === "task") return renderTaskMirror(wb, buf, box);
@@ -2337,24 +2591,14 @@ function mirrorModel(wb) {
 }
 
 function renderTaskMirror(wb, buf, box) {
-  const configs = configNames(wb);
-  const { model, hint } = mirrorModel(wb);
+  const { model, hint } = benchModel(wb);
   const mirror = pure.envMirror(buf.text, { config: wb.mirrorConfig, model });
   box.innerHTML = `
     <p class="ctx-eyebrow">What the Runner receives</p>
     <p class="ctx-sub">live process environment · follows your edits</p>
-    ${configs.length ? `
-      <div class="ctx-config-pick">
-        <label for="ctx-config">config</label>
-        <select id="ctx-config">
-          ${configs.map(c => `
-            <option value="${esc(c)}" ${c === wb.mirrorConfig ? "selected" : ""}>
-              ${esc(c)}</option>`).join("")}
-        </select>
-      </div>` : ""}
     <div class="env-block">
       ${mirror.ok ? mirror.vars.map(v => `
-        <div class="env-var">
+        <div class="env-var" data-env="${esc(v.name)}">
           <span class="env-name">${esc(v.name)}</span>
           <div class="env-val${v.missing || v.synthetic ? " dim" : ""}">${
             v.missing
@@ -2368,12 +2612,9 @@ function renderTaskMirror(wb, buf, box) {
       <p>This is the exact environment <code>smevals run</code> hands your
          Runner subprocess. Add any scalar key to the task and it appears
          here as <code>SMEVALS_TASK_&lt;KEY&gt;</code>.</p>
-    </div>`;
-  const pick = document.getElementById("ctx-config");
-  if (pick) pick.addEventListener("change", () => {
-    wb.mirrorConfig = pick.value;
-    renderContext(wb);
-  });
+    </div>
+    ${benchRunHtml(wb, buf)}`;
+  bindBenchRun(wb, buf, box);
 }
 
 const PIPE_STATUS = {
@@ -2402,7 +2643,9 @@ function renderGraderPipeline(wb, buf, box) {
       <p class="ctx-eyebrow">Check pipeline</p>
       <p class="ctx-sub">what smevals grade runs, in order</p>
       <div class="env-block"><div class="env-err">The pipeline is waiting
-        for valid YAML — <b>${esc(pipe.error)}</b></div></div>`;
+        for valid YAML — <b>${esc(pipe.error)}</b></div></div>
+      ${benchDryHtml(wb, buf)}`;
+    bindBenchDry(wb, buf, box);
     return;
   }
   box.innerHTML = `
@@ -2430,7 +2673,9 @@ function renderGraderPipeline(wb, buf, box) {
       A grade passes when every check succeeds${pipe.threshold !== null
         ? `, and the checks' final score reaches
            ${esc(String(pipe.threshold))}` : ""}.
-    </div>`;
+    </div>
+    ${benchDryHtml(wb, buf)}`;
+  bindBenchDry(wb, buf, box);
 }
 
 function renderConfigContext(wb, buf, box) {
@@ -2470,6 +2715,631 @@ function renderConfigContext(wb, buf, box) {
     </div>`;
 }
 
+// --- bench: runs, jobs, grading, dry-run ---------------------------------
+
+const runsHash = wb => `#/eval/${enc(wb.slug)}/runs`;
+const runHash = (wb, run) => `#/eval/${enc(wb.slug)}/runs/${enc(run)}`;
+const graderNames = wb => (wb.detail.files.graders || [])
+  .map(f => f.path.replace(/^graders\//, "").replace(/\.yaml$/, ""));
+const fileStem = path => String(path).replace(/^.*\//, "").replace(/\.yaml$/, "");
+const runOk = row => !(row.exit_code ?? 0);
+const fmtDuration = s => s == null ? "" :
+  s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`
+          : `${Number(s).toFixed(1)}s`;
+
+async function loadRuns(wb, force = false) {
+  if (wb.runs !== null && !force) return;
+  try {
+    const rows = await api(`/api/evals/${enc(wb.slug)}/runs`);
+    if (state.wb !== wb) return;
+    rows.sort((a, b) => String(b.started || "").localeCompare(String(a.started || "")));
+    wb.runs = rows;
+    wb.runsErr = null;
+  } catch (ex) {
+    if (state.wb !== wb) return;
+    if (wb.runs === null) wb.runs = [];
+    wb.runsErr = ex.message;
+  }
+}
+
+// Model suggestions for the run form's combo box, fetched once per session
+async function loadModels(wb) {
+  if (state.models) return;
+  try {
+    state.models = (await api("/api/models")).models || [];
+  } catch { state.models = []; }
+  if (state.wb === wb) renderContext(wb);
+}
+
+// bare: outcome/score only, for rows where the grader is already named
+const gradeChip = (name, g, bare = false) => {
+  const cls = g.outcome === "pass" ? "pass" : "fail";
+  const score = g.score === null || g.score === undefined ? "" : ` ${g.score}`;
+  const when = g.graded ? ` · graded ${ago(g.graded)}` : "";
+  return `<span class="chip-grade ${cls}" title="${esc(
+    `${name}: ${g.outcome}${score}${when}`)}">${
+    bare ? "" : `${esc(name)}: `}${esc(g.outcome)}${esc(score)}</span>`;
+};
+
+// --- run artifacts: cached file reads + collapsible sections ---------------
+
+function ensureRunFile(wb, run, name) {
+  const key = `${run}/${name}`;
+  if (wb.runText[key] !== undefined) return wb.runText[key];
+  wb.runText[key] = null; // loading
+  api(`/api/evals/${enc(wb.slug)}/file?path=${enc(`runs/${run}/${name}`)}`)
+    .then(data => { wb.runText[key] = data.content; })
+    .catch(ex => { wb.runText[key] = `(couldn't read ${name}: ${ex.message})`; })
+    .finally(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+  return null;
+}
+
+// <details> open state survives rerenders via wb.detailsState
+function foldHtml(wb, key, label, bodyHtml, defaultOpen) {
+  const open = key in wb.detailsState ? wb.detailsState[key] : defaultOpen;
+  return `
+    <details class="fold" data-fold="${esc(key)}"${open ? " open" : ""}>
+      <summary>${esc(label)}</summary>${bodyHtml}
+    </details>`;
+}
+
+function bindFolds(wb, container) {
+  container.querySelectorAll("details[data-fold]").forEach(el =>
+    el.addEventListener("toggle", () => {
+      wb.detailsState[el.dataset.fold] = el.open;
+    }));
+}
+
+// output.txt + stderr + artifacts for one run row, in ctx or run-detail size
+function runBodyHtml(wb, row, keyPrefix) {
+  const files = row.files || [];
+  const artifacts = files.filter(
+    f => !["output.txt", "stderr.txt", "run.yaml"].includes(f));
+  const foldFile = (name, defaultOpen) => {
+    const text = ensureRunFile(wb, row.run, name);
+    return foldHtml(wb, `${keyPrefix}:${row.run}:${name}`, name,
+      text === null ? `<div class="fold-loading">Loading…</div>`
+                    : `<pre>${esc(text)}</pre>`,
+      defaultOpen);
+  };
+  return `
+    ${foldFile("output.txt", true)}
+    ${files.includes("stderr.txt") ? foldFile("stderr.txt", false) : ""}
+    ${artifacts.length ? `
+      <div class="art-line">artifacts:
+        ${artifacts.map(a => `<code>${esc(a)}</code>`).join(" ")}</div>` : ""}`;
+}
+
+// --- runs surfaces (middle pane) -------------------------------------------
+
+function renderRunsPane(wb) {
+  const box = document.getElementById("wb-editor");
+  if (!box) return;
+  if (wb.runs === null) {
+    box.innerHTML = `<div class="ed-empty"><p>Loading runs…</p></div>`;
+    return;
+  }
+  if (wb.surface.run) renderRunDetail(wb, box);
+  else renderRunsList(wb, box);
+}
+
+function runRowHtml(row) {
+  const chips = Object.entries(row.grades || {})
+    .map(([name, g]) => gradeChip(name, g)).join(" ");
+  return `
+    <button type="button" class="run-row" data-run="${esc(row.run)}">
+      <span class="ok-dot${runOk(row) ? "" : " bad"}" title="${runOk(row)
+        ? "runner exited 0"
+        : esc(`runner failed (exit ${row.exit_code})`)}"></span>
+      <span class="run-id">${esc(row.task ?? "?")} <span class="sep">/</span>
+        ${esc(row.config ?? "?")} <span class="sep">/</span>
+        ${esc(row.model ?? "?")}</span>
+      <span class="run-chips">${chips}${runOk(row) ? ""
+        : `<span class="chip-grade fail">failed</span>`}</span>
+      <span class="run-when" title="${esc(row.started || "")}">${
+        row.started ? esc(ago(row.started)) : "—"}</span>
+    </button>`;
+}
+
+function renderRunsList(wb, box) {
+  box.innerHTML = `
+    <div class="ed-head">
+      <span class="ed-path">runs</span>
+      <span class="ed-actions"><span class="bench-hint">${
+        esc(plural(wb.runs.length, "run"))}</span></span>
+    </div>
+    ${wb.runsErr ? `<div class="ed-err">${errorBox(wb.runsErr)}</div>` : ""}
+    ${wb.runs.length
+      ? `<div class="runs-list">${wb.runs.map(runRowHtml).join("")}</div>`
+      : `<div class="ed-empty">
+          <h3>No runs yet</h3>
+          <p>A run is one task attempted once: the Runner's stdout lands in
+             <code>output.txt</code> under <code>runs/</code>, ready for
+             graders to score. Runs are immutable — Studio only ever adds
+             new ones.</p>
+          <p>Open a task and use <b>Run this task</b> in the panel on the
+             right, or from a terminal:
+             <code>smevals run . -t &lt;task&gt;</code>.</p>
+        </div>`}`;
+  box.querySelectorAll(".run-row").forEach(el =>
+    el.addEventListener("click", () => {
+      location.hash = runHash(wb, el.dataset.run);
+    }));
+}
+
+function renderRunDetail(wb, box) {
+  const row = wb.runs.find(r => r.run === wb.surface.run);
+  if (!row) {
+    box.innerHTML = `
+      <div class="ed-head">
+        <span class="ed-path"><a href="${runsHash(wb)}">runs</a></span>
+      </div>
+      <div class="ed-err">${errorBox(`No such run: ${wb.surface.run}`)}</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="ed-head">
+      <span class="ed-path"><a href="${runsHash(wb)}">runs</a> /&nbsp;${esc(row.run)}</span>
+    </div>
+    <div class="run-view">
+      <div class="run-meta">
+        <span class="ok-dot${runOk(row) ? "" : " bad"}"></span>
+        <span>${esc(row.task ?? "?")}</span><span class="sep">·</span>
+        <span>${esc(row.config ?? "?")}</span><span class="sep">·</span>
+        <span>${esc(row.model ?? "?")}</span><span class="sep">·</span>
+        <span title="${esc(row.started || "")}">${
+          row.started ? esc(ago(row.started)) : "—"}</span>
+        ${row.duration != null ? `<span class="sep">·</span>
+          <span>${esc(fmtDuration(row.duration))}</span>` : ""}
+        ${runOk(row) ? "" : `<span class="sep">·</span>
+          <span style="color: var(--fail)">exit ${esc(String(row.exit_code))}</span>`}
+      </div>
+      ${runBodyHtml(wb, row, "run")}
+      ${runGradesHtml(wb, row)}
+    </div>`;
+  bindFolds(wb, box);
+  bindGradeButtons(wb, box);
+}
+
+function runGradesHtml(wb, row) {
+  const names = graderNames(wb);
+  const failed = !runOk(row);
+  return `
+    <div class="run-grades">
+      <div class="rg-label">grades</div>
+      ${failed ? `<p class="rg-note">A failed run is a harness error, not
+        evidence — grading is disabled.</p>` : ""}
+      ${names.length ? names.map(name => {
+        const g = (row.grades || {})[name];
+        const checks = g ? g.checks || [] : [];
+        return `
+          <div class="grade-row">
+            <span class="rg-name">${esc(name)}</span>
+            ${g ? gradeChip(name, g, true)
+                : `<span class="rg-none">not graded yet</span>`}
+            ${failed ? "" : `
+              <button type="button" class="btn btn-sm ${g ? "btn-ghost" : "btn-primary"}"
+                      data-grade="${esc(name)}" data-run="${esc(row.run)}">
+                ${g ? "Regrade" : "Grade"}</button>`}
+          </div>
+          ${checks.length ? foldHtml(wb, `run:${row.run}:checks:${name}`,
+            plural(checks.length, "check"),
+            `<div class="grade-checks">
+              ${checks.map(c => dryCellHtml(checkView(c), null, false)).join("")}
+              ${(g.tags || []).length ? `<div class="dry-tags">${
+                esc(g.tags.map(t => "#" + t).join(" "))}</div>` : ""}
+            </div>`, false) : ""}
+          <div data-grade-err="${esc(name)}"></div>`;
+      }).join("") : `<p class="rg-note">No graders in this eval yet — add
+        one under graders/ and it can score this run.</p>`}
+    </div>`;
+}
+
+function bindGradeButtons(wb, container) {
+  container.querySelectorAll("[data-grade]").forEach(el =>
+    el.addEventListener("click", () => {
+      const slot = container.querySelector(
+        `[data-grade-err="${CSS.escape(el.dataset.grade)}"]`);
+      doGrade(wb, el.dataset.run, el.dataset.grade, slot, el);
+    }));
+}
+
+async function doGrade(wb, run, grader, errSlot, button) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Grading…";
+  try {
+    await api(`/api/evals/${enc(wb.slug)}/grade`, { body: { run, grader } });
+    if (state.wb !== wb) return;
+    await loadRuns(wb, true);
+    if (state.wb !== wb) return;
+    renderBenchSurfaces(wb);
+    // A fresh grade changes what a dry-run comparison is measured against
+    if (wb.open && wb.dry) renderEditor(wb);
+    document.querySelector(
+      `[data-grade="${CSS.escape(grader)}"][data-run="${CSS.escape(run)}"]`)?.focus();
+  } catch (ex) {
+    if (state.wb !== wb) return;
+    button.disabled = false;
+    button.textContent = label;
+    if (errSlot) errSlot.innerHTML = errorBox(ex.message);
+  }
+}
+
+// --- context: the bench note (runs surfaces) -------------------------------
+
+function renderBenchNote(wb, box) {
+  box.innerHTML = `
+    <p class="ctx-eyebrow">The bench</p>
+    <p class="ctx-sub">run → grade → tighten the grader</p>
+    <div class="ctx-note">
+      <p>Each run is a directory under <code>runs/</code>: the Runner's
+         stdout as <code>output.txt</code>, stderr and artifacts beside it,
+         grades in <code>grades/&lt;grader&gt;/</code>.</p>
+      <p>Grade a run with any grader from its page. To tune a grader, open
+         it in the editor and <b>dry-run</b> it against a run: it grades
+         with your unsaved text and shows the difference next to the saved
+         grade, writing nothing under runs/.</p>
+    </div>`;
+}
+
+// --- context: Run this task ------------------------------------------------
+
+// The run form's model wins over the config's default; the same value
+// feeds the env mirror, so the mirror previews exactly the run the
+// button would fire.
+function benchModel(wb) {
+  const typed = (wb.bench.model || "").trim();
+  if (typed) return { model: typed, hint: "" };
+  return mirrorModel(wb);
+}
+
+const jobLogHtml = job => (job.log || []).length
+  ? job.log.slice(-12).map(l => `<div class="log-line">${esc(l)}</div>`).join("")
+  : `<div class="log-line dim">waiting for the runner…</div>`;
+
+function benchRunHtml(wb, buf) {
+  const job = wb.job;
+  const busy = job && (job.status === "queued" || job.status === "running");
+  const configs = configNames(wb);
+  const cfgDefault = mirrorModel(wb).model;
+  return `
+    <div class="ctx-act" id="bench-run">
+      <p class="ctx-eyebrow">Run this task</p>
+      ${busy ? `
+        <div class="job-status"><span class="spin"></span>
+          ${esc(job.status)} — one real run, recorded under runs/</div>
+        <div class="env-block job-log">${jobLogHtml(job)}</div>` : `
+        <div class="bench-form">
+          <div class="bench-row">
+            <label for="bench-config">config</label>
+            ${configs.length ? `
+              <select id="bench-config">
+                ${configs.map(c => `
+                  <option value="${esc(c)}" ${c === wb.mirrorConfig ? "selected" : ""}>
+                    ${esc(c)}</option>`).join("")}
+              </select>` : `<span class="bench-hint">no configs yet</span>`}
+          </div>
+          <div class="bench-row">
+            <label for="bench-model">model</label>
+            <input id="bench-model" list="bench-models" spellcheck="false"
+                   autocomplete="off"
+                   placeholder="${esc(cfgDefault || "model id")}"
+                   value="${esc(wb.bench.model || "")}">
+            <datalist id="bench-models">
+              ${(state.models || []).map(m => `<option value="${esc(m)}">`).join("")}
+            </datalist>
+          </div>
+          <div class="bench-actions">
+            <button type="button" class="btn btn-sm btn-primary" id="bench-go"
+                    ${configs.length ? "" : "disabled"}>Run</button>
+            <span class="bench-hint">${cfgDefault
+              ? `blank model = ${esc(cfgDefault)}`
+              : "this config has no default model"}</span>
+          </div>
+          ${dirty(buf) ? `<div class="bench-hint">Runs the file as saved —
+            this task has unsaved edits.</div>` : ""}
+          <div id="bench-err">${wb.benchErr ? errorBox(wb.benchErr) : ""}</div>
+        </div>`}
+      ${latestRunHtml(wb)}
+    </div>`;
+}
+
+function latestRunHtml(wb) {
+  const job = wb.job;
+  if (!job || job.status === "queued" || job.status === "running") return "";
+  const row = job.run_dir && wb.runs
+    ? wb.runs.find(r => r.run === job.run_dir) : null;
+  return `
+    <div class="bench-done">
+      <p class="ctx-eyebrow" style="margin-top: var(--sp-3)">Latest run</p>
+      ${job.status === "failed" ? errorBox(job.error || "the run failed") : ""}
+      ${row ? `
+        <div class="run-meta">
+          <span class="ok-dot${runOk(row) ? "" : " bad"}"></span>
+          ${row.duration != null ? `<span>${esc(fmtDuration(row.duration))}</span>
+            <span class="sep">·</span>` : ""}
+          <a href="${runHash(wb, row.run)}">open run →</a>
+        </div>
+        ${runBodyHtml(wb, row, "ctx")}
+        ${Object.keys(row.grades || {}).length ? `
+          <div class="run-meta">${Object.entries(row.grades)
+            .map(([n, g]) => gradeChip(n, g)).join(" ")}</div>` : ""}
+        ${runOk(row) ? `
+          <div class="bench-actions">
+            ${graderNames(wb).map(n => `
+              <button type="button" class="btn btn-sm btn-ghost"
+                      data-grade="${esc(n)}" data-run="${esc(row.run)}">
+                Grade with ${esc(n)}</button>`).join("")}
+          </div>
+          <div data-grade-err="ctx"></div>` : ""}
+      ` : job.run_dir ? `<div class="bench-hint">reading the run…</div>` : ""}
+    </div>`;
+}
+
+// Update only the mirror's value nodes while the model box keeps focus -
+// rebuilding the input would dismiss the native datalist dropdown
+function refreshMirrorNodes(wb, buf, box) {
+  const { model, hint } = benchModel(wb);
+  const mirror = pure.envMirror(buf.text, { config: wb.mirrorConfig, model });
+  if (!mirror.ok) return;
+  for (const v of mirror.vars) {
+    const el = box.querySelector(
+      `[data-env="${CSS.escape(v.name)}"] .env-val`);
+    if (!el) continue;
+    el.classList.toggle("dim", !!(v.missing || v.synthetic));
+    el.textContent = v.missing
+      ? (v.name === "SMEVALS_MODEL" ? `(${hint})` : "(missing)")
+      : v.value;
+  }
+}
+
+function bindBenchRun(wb, buf, box) {
+  const configSel = box.querySelector("#bench-config");
+  if (configSel) configSel.addEventListener("change", () => {
+    wb.mirrorConfig = configSel.value;
+    renderContext(wb);
+    document.getElementById("bench-config")?.focus();
+  });
+  const modelInput = box.querySelector("#bench-model");
+  if (modelInput) modelInput.addEventListener("input", () => {
+    wb.bench.model = modelInput.value;
+    refreshMirrorNodes(wb, buf, box);
+  });
+  const go = box.querySelector("#bench-go");
+  if (go) go.addEventListener("click", () => startRun(wb, buf));
+  const gradeErr = box.querySelector('[data-grade-err="ctx"]');
+  box.querySelectorAll("[data-grade]").forEach(el =>
+    el.addEventListener("click", () =>
+      doGrade(wb, el.dataset.run, el.dataset.grade, gradeErr, el)));
+  bindFolds(wb, box);
+}
+
+async function startRun(wb, buf) {
+  wb.benchErr = null;
+  try {
+    const job = await api(`/api/evals/${enc(wb.slug)}/run`, {
+      body: {
+        task: fileStem(buf.path),
+        config: wb.mirrorConfig,
+        // blank falls back to the config's default; the server rejects
+        // honestly when there is neither
+        model: (wb.bench.model || "").trim() || null,
+      },
+    });
+    if (state.wb !== wb) return;
+    wb.job = job;
+    renderContext(wb);
+    pollJob(wb, job.id);
+  } catch (ex) {
+    if (state.wb !== wb) return;
+    wb.benchErr = ex.message;
+    renderContext(wb);
+  }
+}
+
+async function pollJob(wb, jobId) {
+  const active = () => state.wb === wb && wb.job && wb.job.id === jobId;
+  while (active() && (wb.job.status === "queued" || wb.job.status === "running")) {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    if (!active()) return;
+    try {
+      const job = await api(`/api/jobs/${enc(jobId)}`);
+      if (!active()) return;
+      wb.job = job;
+    } catch (ex) {
+      wb.job = { ...wb.job, status: "failed", error: ex.message };
+    }
+    renderContext(wb);
+  }
+  if (!active()) return;
+  await loadRuns(wb, true);
+  if (!active()) return;
+  renderBenchSurfaces(wb);
+}
+
+// --- context: dry-run controls (grader open in the editor) -----------------
+
+function benchDryHtml(wb, buf) {
+  let body;
+  if (wb.runs === null) {
+    body = `<div class="bench-hint">loading runs…</div>`;
+  } else if (!wb.runs.length) {
+    body = `
+      <div class="ctx-note">
+        <p>Dry-run grades an existing run with this editor's current text —
+           unsaved edits included — and compares it with the saved grade,
+           writing nothing.</p>
+        <p>There are no runs yet. Open a task and use <b>Run this task</b>,
+           or from a terminal: <code>smevals run . -t &lt;task&gt;</code>.</p>
+      </div>`;
+  } else {
+    const sel = wb.drySel && wb.runs.some(r => r.run === wb.drySel)
+      ? wb.drySel : wb.runs[0].run;
+    body = `
+      <div class="bench-form">
+        <div class="bench-row">
+          <label for="dry-pick">run</label>
+          <select id="dry-pick">
+            ${wb.runs.map(r => `
+              <option value="${esc(r.run)}" ${r.run === sel ? "selected" : ""}>
+                ${esc(r.task ?? "?")} · ${esc(r.config ?? "?")} ·
+                ${esc(r.model ?? "?")} · ${r.started ? esc(ago(r.started)) : "?"}${
+                  runOk(r) ? "" : " · FAILED"}</option>`).join("")}
+          </select>
+        </div>
+        <div class="bench-actions">
+          <button type="button" class="btn btn-sm btn-primary" id="dry-go"
+                  ${wb.dryPending ? "disabled" : ""}>
+            ${wb.dryPending ? "Dry-running…" : "Dry-run against this run"}</button>
+        </div>
+        <div class="bench-hint">Grades with the editor text as it is now —
+          unsaved edits included. Nothing lands under runs/.</div>
+        <div id="dry-err">${wb.dryErr ? errorBox(wb.dryErr) : ""}</div>
+      </div>`;
+  }
+  return `
+    <div class="ctx-act" id="bench-dry">
+      <p class="ctx-eyebrow">Dry-run this grader</p>
+      ${body}
+    </div>`;
+}
+
+function bindBenchDry(wb, buf, box) {
+  const pick = box.querySelector("#dry-pick");
+  if (pick) pick.addEventListener("change", () => { wb.drySel = pick.value; });
+  const go = box.querySelector("#dry-go");
+  if (go) go.addEventListener("click", () => doDryrun(wb, buf));
+}
+
+async function doDryrun(wb, buf) {
+  const pick = document.getElementById("dry-pick");
+  const run = pick && pick.value;
+  if (!run) return;
+  wb.drySel = run;
+  wb.dryErr = null;
+  wb.dryPending = true;
+  renderContext(wb);
+  try {
+    const result = await api(`/api/evals/${enc(wb.slug)}/dryrun`, {
+      body: { run, grader_yaml: buf.text },
+    });
+    if (state.wb !== wb) return;
+    wb.dry = { run, grader: fileStem(buf.path), result };
+  } catch (ex) {
+    if (state.wb !== wb) return;
+    wb.dryErr = ex.message;
+  }
+  wb.dryPending = false;
+  if (state.wb !== wb) return;
+  if (wb.open === buf.path) renderEditor(wb);
+  renderContext(wb);
+  document.getElementById("dry-go")?.focus();
+}
+
+// --- dry-run comparison panel (under the grader editor) --------------------
+
+function checkView(c) {
+  if (!c || typeof c !== "object") return null;
+  return {
+    checker: typeof c.checker === "string" ? c.checker : "",
+    status: c.skipped ? "skipped" : c.ok ? "ok" : "fail",
+    score: c.score ?? null,
+    notes: typeof c.notes === "string" ? c.notes : "",
+  };
+}
+
+// One check as a comparison cell; when compared, values differing from
+// the other side get the accent wash
+function dryCellHtml(v, other, compared) {
+  if (!v) return `<div class="dc dry-empty-cell">no check here</div>`;
+  const chg = f => compared && (!other || other[f] !== v[f]) ? " chg" : "";
+  const scoreHtml = v.score !== null
+    ? `<span class="dc-score${chg("score")}">score ${esc(String(v.score))}</span>`
+    : compared && other && other.score !== null
+      ? `<span class="dc-score chg">unscored</span>` : "";
+  return `
+    <div class="dc">
+      <div class="dc-head">
+        <span class="dc-status ${esc(v.status)}${chg("status")}">${esc(v.status)}</span>
+        <span class="dc-name${chg("checker")}">${esc(v.checker || "—")}</span>
+        ${scoreHtml}
+      </div>
+      ${v.notes ? `<div class="dc-notes${chg("notes")}">${esc(v.notes)}</div>`
+        : compared && other && other.notes
+          ? `<div class="dc-notes chg">(no notes)</div>` : ""}
+    </div>`;
+}
+
+const drySumHtml = (g, chg) => `
+  <div class="dry-sum">
+    <span class="${chg.score ? "chg" : ""}">score ${
+      g.score == null ? "—" : esc(String(g.score))}</span>
+    <span class="sep">·</span>
+    <span class="outcome-${g.outcome === "pass" ? "pass" : "fail"}${
+      chg.outcome ? " chg" : ""}">${esc(String(g.outcome))}</span>
+  </div>`;
+
+const dryTagsHtml = (tags, changed) => `
+  <div class="dry-tags"><span class="${changed ? "chg" : ""}">${
+    tags && tags.length ? esc(tags.map(t => "#" + t).join(" ")) : "no tags"}</span></div>`;
+
+function dryPanelHtml(wb, buf) {
+  if (!wb.dry || pure.docKind(buf.path) !== "grader") return "";
+  const stem = fileStem(buf.path);
+  if (wb.dry.grader !== stem) return "";
+  const dry = wb.dry.result;
+  const row = (wb.runs || []).find(r => r.run === wb.dry.run);
+  const base = (row && row.grades && row.grades[stem]) || null;
+  const baseChecks = (base ? base.checks || [] : []).map(checkView);
+  const dryChecks = (dry.checks || []).map(checkView);
+  const rows = [];
+  for (let i = 0; i < Math.max(baseChecks.length, dryChecks.length); i++) {
+    const b = baseChecks[i] || null;
+    const d = dryChecks[i] || null;
+    rows.push(`
+      <div class="dry-row">
+        ${base ? `<div class="dry-cell">${dryCellHtml(b, d, false)}</div>` : ""}
+        <div class="dry-cell">${dryCellHtml(d, b, !!base)}</div>
+      </div>`);
+  }
+  const changed = base ? {
+    score: (base.score ?? null) !== (dry.score ?? null),
+    outcome: base.outcome !== dry.outcome,
+    tags: JSON.stringify(base.tags || []) !== JSON.stringify(dry.tags || []),
+  } : { score: false, outcome: false, tags: false };
+  return `
+    <div class="dry-panel${base ? "" : " single"}" id="dry-panel">
+      <div class="dry-head">
+        <span class="ctx-eyebrow">Dry run · ${esc(wb.dry.run)}</span>
+        <button type="button" class="btn-del" data-act="dryclose"
+                title="Close the dry-run panel">✕</button>
+      </div>
+      <div class="dry-row dry-labels">
+        ${base ? `<div>saved grade${base.graded
+          ? ` · ${esc(ago(base.graded))}` : ""}</div>` : ""}
+        <div class="ours-label">your edit · dry run${
+          dirty(buf) ? " · unsaved" : ""}</div>
+      </div>
+      ${rows.join("")}
+      <div class="dry-row">
+        ${base ? `<div class="dry-cell">${drySumHtml(base, {})}</div>` : ""}
+        <div class="dry-cell">${drySumHtml(dry, changed)}</div>
+      </div>
+      <div class="dry-row">
+        ${base ? `<div class="dry-cell">${dryTagsHtml(base.tags, false)}</div>` : ""}
+        <div class="dry-cell">${dryTagsHtml(dry.tags, changed.tags)}</div>
+      </div>
+      ${base ? "" : `
+        <p class="dry-note">This run has no saved grade from ${esc(stem)}
+          yet, so there is nothing to compare against — this is the dry
+          result alone. Grading the run from its page saves one.</p>`}
+      ${dry.artifacts && dry.artifacts.length ? `
+        <p class="dry-note">the checks would write:
+          ${dry.artifacts.map(a => `<code>${esc(a)}</code>`).join(" ")}</p>` : ""}
+    </div>`;
+}
+
 // --- global editor keys + unload guard -----------------------------------
 
 document.addEventListener("keydown", event => {
@@ -2493,13 +3363,17 @@ window.addEventListener("beforeunload", event => {
 
 function route() {
   const hash = location.hash || "#/";
-  const m = hash.match(/^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?)?$/);
+  const m = hash.match(
+    /^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?|(\/runs)(?:\/([^/]+))?)?$/);
   document.body.classList.toggle("wb", !!m);
   if (m) {
-    return renderWorkbench(
-      decodeURIComponent(m[1]),
-      m[2] ? decodeURIComponent(m[2]) : null,
-      !!m[3]);
+    const slug = decodeURIComponent(m[1]);
+    if (m[4]) {
+      return renderWorkbench(slug,
+        { runs: true, run: m[5] ? decodeURIComponent(m[5]) : null });
+    }
+    return renderWorkbench(slug,
+      { file: m[2] ? decodeURIComponent(m[2]) : null, raw: !!m[3] });
   }
   state.wb = null;
   return renderShelf();
