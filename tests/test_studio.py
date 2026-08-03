@@ -8,6 +8,7 @@ repo's usual style for studio.py's sibling site.py.
 import hashlib
 import http.client
 import json
+import os
 import pathlib
 import socket
 import subprocess
@@ -17,10 +18,29 @@ import time
 import pytest
 import yaml
 
+from conftest import python_script, read_yaml, write_executable
 from smevals import studio
 from smevals.authoring import scaffold_eval
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
+
+# A stub Runner: writes canned output plus a log file, per the Runner
+# contract - a real executable, not a mock of run execution.
+STUB_RUNNER = python_script("""\
+    import os, pathlib
+    print("STUB OUTPUT")
+    pathlib.Path(os.environ["SMEVALS_RUN_DIR"], "stub.log").write_text("ran\\n")
+    """)
+
+# A slow variant, so a test can observe a job still queued/running before
+# it completes (for the active-job-conflict case)
+SLOW_RUNNER = python_script("""\
+    import time
+    time.sleep(0.4)
+    print("STUB OUTPUT")
+    """)
+
+FAILING_RUNNER = python_script("import sys\nsys.exit(3)\n")
 
 
 @pytest.fixture
@@ -47,11 +67,14 @@ def server(suite):
         port = probe.getsockname()[1]
     threading.Thread(target=studio.run_studio, args=(root, port), daemon=True).start()
 
-    def get(path):
+    def get(path, method="GET", body=None):
+        "GET by default; pass method=/body= for POST and PUT requests"
+        data = json.dumps(body).encode() if body is not None else None
+        headers = {"Content-Type": "application/json"} if data is not None else {}
         for attempt in range(100):
             try:
                 conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-                conn.request("GET", path)
+                conn.request(method, path, body=data, headers=headers)
                 response = conn.getresponse()
                 return (
                     response.status,
@@ -63,6 +86,26 @@ def server(suite):
         raise AssertionError("server never came up")
 
     return get, root, first, second
+
+
+def run_and_wait(
+    get, slug, *, task="example", config="default", model="stub-model", timeout=5.0
+):
+    "POST a run job and poll /api/jobs/<id> until it leaves queued/running"
+    status, _, body = get(
+        f"/api/evals/{slug}/run",
+        method="POST",
+        body={"task": task, "config": config, "model": model},
+    )
+    assert status == 202, body
+    job = json.loads(body)
+    deadline = time.monotonic() + timeout
+    while job["status"] in ("queued", "running"):
+        assert time.monotonic() < deadline, f"job never finished: {job}"
+        time.sleep(0.02)
+        _, _, body = get(f"/api/jobs/{job['id']}")
+        job = json.loads(body)
+    return job
 
 
 # --- GET / -----------------------------------------------------------------
@@ -276,6 +319,523 @@ def test_file_read_rejects_null_byte_without_crashing(server):
     assert status == 404
     assert ctype == "application/json"
     assert "error" in json.loads(body)
+
+
+# --- POST /api/evals (scaffold) ----------------------------------------------
+
+
+def test_scaffold_returns_slug_that_get_serves(server):
+    get, root, first, second = server
+    status, ctype, body = get(
+        "/api/evals",
+        method="POST",
+        body={"name": "third-eval", "description": "A third eval"},
+    )
+    assert status == 201
+    assert ctype == "application/json"
+    data = json.loads(body)
+    assert data["slug"] == "third-eval"
+    assert data["validation"] == []
+
+    status, _, body = get(f"/api/evals/{data['slug']}")
+    assert status == 200
+    entry = json.loads(body)
+    assert {f["path"] for f in entry["files"]["tasks"]} == {"tasks/example.yaml"}
+
+
+def test_scaffold_mixed_case_name_returns_servable_slug(server):
+    # authoring.scaffold_slug lowercases the new Eval's directory ("My Eval"
+    # -> my-eval/) but cli.slugify - which discover_slugs uses to compute
+    # the API slug from the eval's declared "name" field - preserves case
+    # ("My Eval" -> "My-Eval"). The two disagree, so the response must carry
+    # whatever slug discover_slugs actually computes after scaffolding (the
+    # API's own truth), not the directory name, or GET wouldn't find it.
+    get, root, first, second = server
+    status, _, body = get(
+        "/api/evals",
+        method="POST",
+        body={"name": "My Eval", "description": "Mixed case"},
+    )
+    assert status == 201
+    slug = json.loads(body)["slug"]
+
+    status, _, body = get(f"/api/evals/{slug}")
+    assert status == 200
+    assert {f["path"] for f in json.loads(body)["files"]["tasks"]} == {
+        "tasks/example.yaml"
+    }
+
+
+def test_scaffold_missing_name_is_400(server):
+    get, *_ = server
+    status, ctype, body = get("/api/evals", method="POST", body={"description": "x"})
+    assert status == 400
+    assert "error" in json.loads(body)
+
+
+def test_scaffold_duplicate_directory_is_400(server):
+    get, *_ = server
+    status, _, body = get(
+        "/api/evals", method="POST", body={"name": "first-eval", "description": "dup"}
+    )
+    assert status == 400
+    assert "error" in json.loads(body)
+
+
+# --- PUT /api/evals/<slug>/file -----------------------------------------------
+
+
+def test_put_file_roundtrip(server):
+    get, root, first, second = server
+    status, _, body = get("/api/evals/first-eval/file?path=eval.yaml")
+    sha = json.loads(body)["sha256"]
+
+    new_content = yaml.safe_dump({"name": "first-eval", "description": "updated"})
+    status, ctype, body = get(
+        "/api/evals/first-eval/file",
+        method="PUT",
+        body={"path": "eval.yaml", "content": new_content, "base_sha256": sha},
+    )
+    assert status == 200
+    assert ctype == "application/json"
+    data = json.loads(body)
+    assert data["sha256"] == hashlib.sha256(new_content.encode()).hexdigest()
+    assert data["validation"] == []
+    assert (first / "eval.yaml").read_text() == new_content
+    # No leftover tmp file from the atomic write
+    assert not list(first.rglob("*.tmp"))
+
+
+def test_put_file_creates_new_file(server):
+    get, root, first, second = server
+    empty_sha = hashlib.sha256(b"").hexdigest()
+    content = yaml.safe_dump({"name": "second", "prompt": "hi"})
+    status, _, body = get(
+        "/api/evals/first-eval/file",
+        method="PUT",
+        body={
+            "path": "tasks/second.yaml",
+            "content": content,
+            "base_sha256": empty_sha,
+        },
+    )
+    assert status == 200
+    assert (first / "tasks" / "second.yaml").read_text() == content
+
+
+def test_put_file_conflict_returns_theirs_and_ours(server):
+    get, root, first, second = server
+    status, _, body = get("/api/evals/first-eval/file?path=eval.yaml")
+    stale_sha = json.loads(body)["sha256"]
+
+    # Someone else (Jesse's own editor) changes the file on disk first
+    external_content = yaml.safe_dump(
+        {"name": "first-eval", "description": "external edit"}
+    )
+    (first / "eval.yaml").write_text(external_content)
+
+    our_content = yaml.safe_dump({"name": "first-eval", "description": "studio edit"})
+    status, ctype, body = get(
+        "/api/evals/first-eval/file",
+        method="PUT",
+        body={"path": "eval.yaml", "content": our_content, "base_sha256": stale_sha},
+    )
+    assert status == 409
+    assert ctype == "application/json"
+    data = json.loads(body)
+    assert "error" in data
+    assert data["theirs"] == external_content
+    assert data["ours"] == our_content
+    # The conflicting write never lands
+    assert (first / "eval.yaml").read_text() == external_content
+
+
+def test_put_file_rejects_traversal(server):
+    get, root, first, second = server
+    status, ctype, body = get(
+        "/api/evals/first-eval/file",
+        method="PUT",
+        body={"path": "../escape.txt", "content": "pwned", "base_sha256": ""},
+    )
+    assert status == 400
+    assert "error" in json.loads(body)
+    assert not (root / "escape.txt").exists()
+
+
+def test_put_file_sets_executable_bit(server):
+    get, root, first, second = server
+    status, _, body = get("/api/evals/first-eval/file?path=run-llm")
+    sha = json.loads(body)["sha256"]
+    status, _, body = get(
+        "/api/evals/first-eval/file",
+        method="PUT",
+        body={
+            "path": "run-llm",
+            "content": "#!/bin/sh\necho hi\n",
+            "base_sha256": sha,
+            "executable": False,
+        },
+    )
+    assert status == 200
+    assert not os.access(first / "run-llm", os.X_OK)
+
+
+def test_put_file_preserves_executable_bit_by_default(server):
+    get, root, first, second = server
+    status, _, body = get("/api/evals/first-eval/file?path=run-llm")
+    sha = json.loads(body)["sha256"]
+    status, _, body = get(
+        "/api/evals/first-eval/file",
+        method="PUT",
+        body={"path": "run-llm", "content": "#!/bin/sh\necho hi\n", "base_sha256": sha},
+    )
+    assert status == 200
+    assert os.access(first / "run-llm", os.X_OK)
+
+
+# --- POST /api/evals/<slug>/run -----------------------------------------------
+
+
+def test_run_job_lifecycle_to_done(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+
+    job = run_and_wait(get, "first-eval")
+    assert job["status"] == "done"
+    assert job["kind"] == "run"
+    assert job["run_dir"]
+
+    run_dir = first / "runs" / job["run_dir"]
+    assert (run_dir / "run.yaml").exists()
+    assert (run_dir / "output.txt").read_text() == "STUB OUTPUT\n"
+    assert (run_dir / "stub.log").read_text() == "ran\n"
+    assert read_yaml(run_dir / "run.yaml")["config"]["model"] == "stub-model"
+
+
+def test_run_unknown_config_is_400(server):
+    get, *_ = server
+    status, ctype, body = get(
+        "/api/evals/first-eval/run",
+        method="POST",
+        body={"task": "example", "config": "nope", "model": "m"},
+    )
+    assert status == 400
+    assert "error" in json.loads(body)
+
+
+def test_run_unknown_task_is_400(server):
+    get, *_ = server
+    status, _, body = get(
+        "/api/evals/first-eval/run",
+        method="POST",
+        body={"task": "nope", "config": "default", "model": "m"},
+    )
+    assert status == 400
+
+
+def test_run_unknown_eval_is_404(server):
+    get, *_ = server
+    status, _, body = get(
+        "/api/evals/nope/run",
+        method="POST",
+        body={"task": "example", "config": "default", "model": "m"},
+    )
+    assert status == 404
+
+
+def test_run_active_job_conflict(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", SLOW_RUNNER)
+
+    status, _, body = get(
+        "/api/evals/first-eval/run",
+        method="POST",
+        body={"task": "example", "config": "default", "model": "m"},
+    )
+    assert status == 202
+    job = json.loads(body)
+
+    status, ctype, body = get(
+        "/api/evals/first-eval/run",
+        method="POST",
+        body={"task": "example", "config": "default", "model": "m"},
+    )
+    assert status == 409
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+
+    # Drain the first job so its thread doesn't outlive the test
+    deadline = time.monotonic() + 5
+    while job["status"] in ("queued", "running"):
+        assert time.monotonic() < deadline, "job never finished"
+        time.sleep(0.02)
+        _, _, body = get(f"/api/jobs/{job['id']}")
+        job = json.loads(body)
+    assert job["status"] == "done"
+
+
+def test_run_active_job_conflict_is_per_eval(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", SLOW_RUNNER)
+    write_executable(second / "run-llm", STUB_RUNNER)
+
+    status, _, body = get(
+        "/api/evals/first-eval/run",
+        method="POST",
+        body={"task": "example", "config": "default", "model": "m"},
+    )
+    assert status == 202
+    first_job = json.loads(body)
+
+    # second-eval isn't busy, even while first-eval has an active job
+    second_job = run_and_wait(get, "second-eval")
+    assert second_job["status"] == "done"
+
+    deadline = time.monotonic() + 5
+    while first_job["status"] in ("queued", "running"):
+        assert time.monotonic() < deadline, "job never finished"
+        time.sleep(0.02)
+        _, _, body = get(f"/api/jobs/{first_job['id']}")
+        first_job = json.loads(body)
+
+
+def test_run_failed_runner_marks_job_failed(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", FAILING_RUNNER)
+    job = run_and_wait(get, "first-eval")
+    assert job["status"] == "failed"
+    assert job["error"] == "runner exited non-zero"
+    assert job["run_dir"]
+
+
+# --- GET /api/jobs/<id> --------------------------------------------------------
+
+
+def test_get_unknown_job_is_404(server):
+    get, *_ = server
+    status, ctype, body = get("/api/jobs/nope")
+    assert status == 404
+    assert ctype == "application/json"
+    assert "error" in json.loads(body)
+
+
+# --- POST /api/evals/<slug>/grade ----------------------------------------------
+
+
+def test_grade_endpoint_persists_grade(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    job = run_and_wait(get, "first-eval")
+    run_rel = job["run_dir"]
+
+    status, ctype, body = get(
+        "/api/evals/first-eval/grade",
+        method="POST",
+        body={"run": run_rel, "grader": "default"},
+    )
+    assert status == 200
+    assert ctype == "application/json"
+    data = json.loads(body)
+    assert data["outcome"] == "pass"  # scaffold's default checker is contains:""
+
+    grade_file = first / "runs" / run_rel / "grades" / "default" / "grade.yaml"
+    assert grade_file.exists()
+    assert read_yaml(grade_file)["outcome"] == "pass"
+
+
+def test_grade_unknown_run_is_404(server):
+    get, *_ = server
+    status, _, body = get(
+        "/api/evals/first-eval/grade",
+        method="POST",
+        body={"run": "nope/nope/nope/nope", "grader": "default"},
+    )
+    assert status == 404
+    assert "error" in json.loads(body)
+
+
+def test_grade_unknown_grader_is_404(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    job = run_and_wait(get, "first-eval")
+    status, _, body = get(
+        "/api/evals/first-eval/grade",
+        method="POST",
+        body={"run": job["run_dir"], "grader": "nope"},
+    )
+    assert status == 404
+
+
+def test_grade_failed_run_is_400(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", FAILING_RUNNER)
+    job = run_and_wait(get, "first-eval")
+    status, _, body = get(
+        "/api/evals/first-eval/grade",
+        method="POST",
+        body={"run": job["run_dir"], "grader": "default"},
+    )
+    assert status == 400
+    assert "failed" in json.loads(body)["error"]
+
+
+# --- POST /api/evals/<slug>/dryrun ---------------------------------------------
+
+PATH_RECORDER_CHECKER = python_script("""\
+    import os, pathlib
+    pathlib.Path(os.environ["SMEVALS_RUN_DIR"], "workspace-path.txt").write_text(
+        str(pathlib.Path.cwd())
+    )
+    print("recorded")
+    """)
+
+WORKSPACE_WRITER_CHECKER = python_script("""\
+    import pathlib
+    pathlib.Path("scratch.txt").write_text("hi")
+    """)
+
+
+def test_dryrun_grades_without_persisting_and_cleans_temp_dir(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    write_executable(first / "checkers" / "recorder", PATH_RECORDER_CHECKER)
+    write_executable(first / "checkers" / "writer", WORKSPACE_WRITER_CHECKER)
+    job = run_and_wait(get, "first-eval")
+    run_rel = job["run_dir"]
+    run_dir = first / "runs" / run_rel
+
+    # A grader that does NOT match what's saved on disk (graders/default.yaml)
+    # - this must reflect the request body, not the persisted file
+    grader_yaml = yaml.safe_dump(
+        {
+            "name": "scratch",
+            "checks": [
+                {"checker": "../checkers/writer"},
+                {"checker": "../checkers/recorder"},
+            ],
+        }
+    )
+    status, ctype, body = get(
+        "/api/evals/first-eval/dryrun",
+        method="POST",
+        body={"run": run_rel, "grader_yaml": grader_yaml},
+    )
+    assert status == 200
+    assert ctype == "application/json"
+    data = json.loads(body)
+    assert data["outcome"] == "pass"
+    assert [c["ok"] for c in data["checks"]] == [True, True]
+    assert data["artifacts"] == ["scratch.txt"]
+    assert not (run_dir / "grades").exists()  # nothing persisted under the Run
+
+    # The temp workspace the checkers ran in is gone once the request returned
+    workspace_path = pathlib.Path((run_dir / "workspace-path.txt").read_text())
+    assert not workspace_path.exists()
+
+
+def test_dryrun_invalid_yaml_is_400(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    job = run_and_wait(get, "first-eval")
+    status, _, body = get(
+        "/api/evals/first-eval/dryrun",
+        method="POST",
+        body={"run": job["run_dir"], "grader_yaml": "checks: [unterminated"},
+    )
+    assert status == 400
+    assert "error" in json.loads(body)
+
+
+def test_dryrun_malformed_grader_is_400(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    job = run_and_wait(get, "first-eval")
+    status, _, body = get(
+        "/api/evals/first-eval/dryrun",
+        method="POST",
+        # checks entries missing the required "checker" key
+        body={
+            "run": job["run_dir"],
+            "grader_yaml": "name: x\nchecks:\n  - value: hi\n",
+        },
+    )
+    assert status == 400
+    assert "error" in json.loads(body)
+
+
+def test_dryrun_unknown_run_is_404(server):
+    get, *_ = server
+    status, _, body = get(
+        "/api/evals/first-eval/dryrun",
+        method="POST",
+        body={"run": "nope", "grader_yaml": "name: x\nchecks: []"},
+    )
+    assert status == 404
+
+
+# --- GET /api/evals/<slug>/runs ------------------------------------------------
+
+
+def test_runs_listing_reuses_collect_eval(server):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    job = run_and_wait(get, "first-eval")
+    get(
+        "/api/evals/first-eval/grade",
+        method="POST",
+        body={"run": job["run_dir"], "grader": "default"},
+    )
+
+    status, ctype, body = get("/api/evals/first-eval/runs")
+    assert status == 200
+    assert ctype == "application/json"
+    rows = json.loads(body)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["task"] == "example"
+    assert row["config"] == "default"
+    assert row["model"] == "stub-model"
+    assert row["exit_code"] == 0
+    assert row["grades"]["default"]["outcome"] == "pass"
+
+
+# --- GET /api/models ------------------------------------------------------------
+
+FAKE_LLM_JSON = python_script("""\
+    import sys
+    if sys.argv[1:4] == ["models", "list", "--json"]:
+        print('[{"model_id": "fake-model-a"}, {"model_id": "fake-model-b"}]')
+    """)
+
+
+def test_models_configs_only_fallback_without_llm_on_path(
+    server, monkeypatch, tmp_path
+):
+    get, *_ = server
+    empty_path_dir = tmp_path / "empty-path"
+    empty_path_dir.mkdir()
+    monkeypatch.setenv("PATH", str(empty_path_dir))
+
+    status, ctype, body = get("/api/models")
+    assert status == 200
+    assert ctype == "application/json"
+    data = json.loads(body)
+    assert set(data["models"]) == {
+        "gpt-4.1-mini"
+    }  # both scaffolded evals' config default
+
+
+def test_models_includes_llm_list_when_available(server, monkeypatch, tmp_path):
+    get, *_ = server
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    write_executable(bin_dir / "llm", FAKE_LLM_JSON)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    status, _, body = get("/api/models")
+    assert status == 200
+    data = json.loads(body)
+    assert {"fake-model-a", "fake-model-b", "gpt-4.1-mini"} <= set(data["models"])
 
 
 # --- misc routing ------------------------------------------------------------

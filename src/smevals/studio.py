@@ -5,22 +5,42 @@ every Eval discovered under root (Suite semantics identical to serve's
 discovery - see cli.discover_evals). Binds 127.0.0.1 only: studio writes
 files and executes runners, so it must never be exposed on the network.
 
-This module carries the read APIs only (Task 2 of the studio plan): the
-shelf listing, one Eval's file tree + validation, and guarded file reads.
-Write/run/grade endpoints come in later tasks.
+Task 2 carried the read APIs: the shelf listing, one Eval's file tree +
+validation, and guarded file reads. This module now also carries the
+write + execute APIs (Task 3): scaffolding new Evals, atomic file writes,
+running a Task and grading a Run as background jobs, dry-running a grader
+against unsaved edits, and best-effort model suggestions. Runs and grades
+go through cli.py's real execution/grading internals (execute_run,
+run_checks, score_and_outcome) so Studio never re-implements them.
 """
 
 import hashlib
 import json
 import os
+import subprocess
+import tempfile
+import threading
 import urllib.parse
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
 
-from .authoring import validate_eval
-from .cli import discover_evals, load_eval, slugify
-from .site import cached_yaml
+import yaml
+
+from .authoring import scaffold_eval, validate_eval
+from .cli import (
+    discover_evals,
+    execute_run,
+    grade_run,
+    load_eval,
+    load_yaml,
+    run_checks,
+    run_failed,
+    score_and_outcome,
+    slugify,
+)
+from .site import cached_yaml, collect_eval, now_iso
 
 # Directories with a fixed meaning in the canonical Eval layout; any other
 # top-level file or directory groups under "other" in the file tree.
@@ -116,31 +136,168 @@ def eval_detail(eval_dir):
     return {"files": file_tree(eval_dir), "validation": validate_eval(eval_dir)}
 
 
-def resolve_eval_file(eval_dir, rel):
-    """Resolve a path relative to an Eval dir, guarding against traversal.
+def resolve_within(base_dir, rel):
+    """Resolve a path relative to base_dir, guarding against traversal.
 
-    Rejects ../ escapes, absolute paths and symlinks resolving outside the
-    Eval dir - same is_relative_to containment check serve's site.py uses,
-    which (unlike a string-prefix check) can't be fooled by a sibling
-    directory whose name merely starts with the same prefix. A path
+    Rejects ../ escapes, absolute paths and symlinks resolving outside
+    base_dir - an is_relative_to containment check (unlike a string-prefix
+    check, this can't be fooled by a sibling directory whose name merely
+    starts with the same prefix), same as serve's site.py uses. A path
     carrying an embedded null byte makes Path.resolve() raise instead of
-    returning - that is not-found too, not a server error.
+    returning - that is not-found too, not a server error. The target
+    need not already exist, so callers writing a brand new file (or a
+    not-yet-created scaffold parent) can use this too.
     """
     if not rel:
         return None
-    eval_root = eval_dir.resolve()
+    base_root = base_dir.resolve()
     try:
-        target = (eval_dir / rel).resolve()
+        target = (base_dir / rel).resolve()
     except (OSError, ValueError):
         return None
-    if not target.is_relative_to(eval_root) or not target.is_file():
+    if not target.is_relative_to(base_root):
         return None
     return target
+
+
+def resolve_eval_file(eval_dir, rel):
+    "Resolve rel to an existing file within an Eval dir, or None (see resolve_within)"
+    target = resolve_within(eval_dir, rel)
+    if target is None or not target.is_file():
+        return None
+    return target
+
+
+def resolve_run_dir(eval_dir, rel):
+    "Resolve rel to a Run directory under an Eval's runs/, or None (see resolve_within)"
+    target = resolve_within(eval_dir / "runs", rel)
+    if target is None or not (target / "run.yaml").is_file():
+        return None
+    return target
+
+
+def atomic_write(target, data):
+    "Write bytes to target via tmp-file-plus-rename, so readers never see a partial write"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".tmp"
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp_path, target)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def job_echo(log_lines):
+    "An execute_run-compatible echo that appends completed lines to log_lines"
+    buffer = []
+
+    def echo(message="", nl=True):
+        buffer.append(str(message))
+        if nl:
+            log_lines.append("".join(buffer))
+            buffer.clear()
+
+    return echo
+
+
+def tail_lines(text, n=20):
+    "The last n lines of text, for surfacing a subprocess failure without flooding the job log"
+    return "\n".join(text.splitlines()[-n:])
+
+
+def config_models(root):
+    "Every distinct model named in a Config across every Eval under root"
+    models = set()
+    for eval_path in discover_slugs(root).values():
+        for config_file in (eval_path / "configs").glob("*.yaml"):
+            model = (cached_yaml(config_file) or {}).get("model")
+            if isinstance(model, str) and model:
+                models.add(model)
+    return models
+
+
+def llm_models():
+    "Best-effort model set from `llm models list --json`, empty if unavailable within 2s"
+    try:
+        result = subprocess.run(
+            ["llm", "models", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode != 0:
+        return set()
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return set()
+    if not isinstance(data, list):
+        return set()
+    models = set()
+    for entry in data:
+        if isinstance(entry, str):
+            models.add(entry)
+        elif isinstance(entry, dict):
+            model_id = entry.get("model_id") or entry.get("id")
+            if model_id:
+                models.add(model_id)
+    return models
 
 
 def run_studio(root, port):
     "Serve smevals Studio over every Eval discovered under root"
     root = Path(root).resolve()
+
+    # Job table + one-active-job-per-eval bookkeeping, and the llm-models
+    # cache: all scoped to this server's lifetime (one `smevals studio`
+    # invocation is one process, so this doubles as the process-lifetime
+    # cache the design calls for, while still giving each test its own).
+    jobs = {}
+    active_jobs = {}
+    jobs_lock = threading.Lock()
+    llm_models_cache = {}
+
+    def cached_llm_models():
+        if "value" not in llm_models_cache:
+            llm_models_cache["value"] = llm_models()
+        return llm_models_cache["value"]
+
+    def run_job(job, slug, runs_root, task, config_name, runner, model):
+        "Execute a queued run job in the background, updating it in place"
+        job["status"] = "running"
+        log_lines = []
+        try:
+            ok, run_dir = execute_run(
+                runs_root, task, config_name, runner, model, echo=job_echo(log_lines)
+            )
+        except Exception as ex:
+            with jobs_lock:
+                job["status"] = "failed"
+                job["error"] = str(ex)
+                job["log"] = log_lines
+                del active_jobs[slug]
+            return
+        with jobs_lock:
+            job["log"] = log_lines
+            job["run_dir"] = str(run_dir.relative_to(runs_root))
+            if ok:
+                job["status"] = "done"
+            else:
+                job["status"] = "failed"
+                stderr_file = run_dir / "stderr.txt"
+                job["error"] = (
+                    tail_lines(stderr_file.read_text())
+                    if stderr_file.exists()
+                    else "runner exited non-zero"
+                )
+            del active_jobs[slug]
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -154,11 +311,66 @@ def run_studio(root, port):
                         for slug, eval_path in sorted(discover_slugs(root).items())
                     ]
                 )
+            if parts.path == "/api/models":
+                return self.reply_json(
+                    {"models": sorted(config_models(root) | cached_llm_models())}
+                )
+            if parts.path.startswith("/api/jobs/"):
+                return self.handle_get_job(parts.path.removeprefix("/api/jobs/"))
             if parts.path.startswith("/api/evals/"):
                 return self.serve_eval_api(
                     parts.path.removeprefix("/api/evals/"), parts.query
                 )
             self.reply_error(404, "not found")
+
+        def do_POST(self):
+            parts = urllib.parse.urlsplit(self.path)
+            if parts.path == "/api/evals":
+                return self.handle_scaffold()
+            if parts.path.startswith("/api/evals/"):
+                slug, _, tail = parts.path.removeprefix("/api/evals/").partition("/")
+                eval_dir = self.resolve_eval(slug)
+                if eval_dir is None:
+                    return
+                if tail == "run":
+                    return self.handle_run(slug, eval_dir)
+                if tail == "grade":
+                    return self.handle_grade(eval_dir)
+                if tail == "dryrun":
+                    return self.handle_dryrun(eval_dir)
+            self.reply_error(404, "not found")
+
+        def do_PUT(self):
+            parts = urllib.parse.urlsplit(self.path)
+            if parts.path.startswith("/api/evals/"):
+                slug, _, tail = parts.path.removeprefix("/api/evals/").partition("/")
+                eval_dir = self.resolve_eval(slug)
+                if eval_dir is None:
+                    return
+                if tail == "file":
+                    return self.handle_put_file(eval_dir)
+            self.reply_error(404, "not found")
+
+        def resolve_eval(self, slug):
+            "The Eval dir for slug, or None after replying 404"
+            eval_dir = discover_slugs(root).get(slug)
+            if eval_dir is None:
+                self.reply_error(404, f"no such eval: {slug}")
+                return None
+            return eval_dir
+
+        def read_json_body(self):
+            "The request body parsed as a JSON object, or None (already replied 400)"
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b""
+            try:
+                data = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                data = None
+            if not isinstance(data, dict):
+                self.reply_error(400, "request body must be a JSON object")
+                return None
+            return data
 
         def serve_eval_api(self, rest, query):
             slug, _, tail = rest.partition("/")
@@ -170,6 +382,8 @@ def run_studio(root, port):
             if tail == "file":
                 rel = urllib.parse.parse_qs(query).get("path", [""])[0]
                 return self.serve_file(eval_dir, rel)
+            if tail == "runs":
+                return self.reply_json(collect_eval(eval_dir)["rows"])
             self.reply_error(404, "not found")
 
         def serve_file(self, eval_dir, rel):
@@ -185,13 +399,202 @@ def run_studio(root, port):
                 }
             )
 
-        def reply_json(self, data):
-            self.reply(200, json.dumps(data).encode(), "application/json")
+        def handle_get_job(self, job_id):
+            job = jobs.get(job_id)
+            if job is None:
+                return self.reply_error(404, f"no such job: {job_id}")
+            self.reply_json(job)
 
-        def reply_error(self, status, message):
-            self.reply(
-                status, json.dumps({"error": message}).encode(), "application/json"
+        # --- POST /api/evals: scaffold -------------------------------
+
+        def handle_scaffold(self):
+            body = self.read_json_body()
+            if body is None:
+                return
+            parent_dir = root
+            parent_rel = body.get("parent")
+            if parent_rel:
+                parent_dir = resolve_within(root, parent_rel)
+                if parent_dir is None:
+                    return self.reply_error(400, "parent escapes the studio root")
+            try:
+                eval_dir = scaffold_eval(
+                    parent_dir, body.get("name"), body.get("description", "")
+                )
+            except ValueError as ex:
+                return self.reply_error(400, str(ex))
+            # authoring.scaffold_slug (directory name) and cli.slugify (the
+            # API slug, derived from the declared "name") can disagree on
+            # mixed-case/spaced names - re-discover rather than assume, so
+            # the slug returned is always one GET /api/evals/<slug> serves
+            slug = next(
+                (
+                    s
+                    for s, path in discover_slugs(root).items()
+                    if path.resolve() == eval_dir.resolve()
+                ),
+                None,
             )
+            self.reply_json({"slug": slug, "validation": validate_eval(eval_dir)}, 201)
+
+        # --- PUT /api/evals/<slug>/file --------------------------------
+
+        def handle_put_file(self, eval_dir):
+            body = self.read_json_body()
+            if body is None:
+                return
+            target = resolve_within(eval_dir, body.get("path"))
+            if target is None:
+                return self.reply_error(400, "path escapes the eval directory")
+            content = body.get("content")
+            if not isinstance(content, str):
+                return self.reply_error(400, "content must be a string")
+
+            current = target.read_bytes() if target.is_file() else b""
+            current_sha = hashlib.sha256(current).hexdigest()
+            if body.get("base_sha256") != current_sha:
+                return self.reply_error(
+                    409,
+                    "file changed on disk since it was loaded",
+                    theirs=current.decode("utf-8", errors="replace"),
+                    ours=content,
+                )
+
+            was_executable = target.is_file() and os.access(target, os.X_OK)
+            atomic_write(target, content.encode())
+            executable = body.get("executable")
+            if executable is None:
+                executable = was_executable
+            target.chmod(0o755 if executable else 0o644)
+
+            self.reply_json(
+                {
+                    "sha256": hashlib.sha256(content.encode()).hexdigest(),
+                    "validation": validate_eval(eval_dir),
+                }
+            )
+
+        # --- POST /api/evals/<slug>/run ---------------------------------
+
+        def handle_run(self, slug, eval_dir):
+            body = self.read_json_body()
+            if body is None:
+                return
+            task_name, config_name, model = (
+                body.get("task"),
+                body.get("config"),
+                body.get("model"),
+            )
+
+            config_path = eval_dir / "configs" / f"{config_name}.yaml"
+            if not config_name or not config_path.is_file():
+                return self.reply_error(400, f"no such config: {config_name}")
+            config = load_yaml(config_path)
+            runner = (config_path.parent / config["runner"]).resolve()
+            if not (runner.is_file() and os.access(runner, os.X_OK)):
+                return self.reply_error(
+                    400, f"runner {runner} is not an executable file"
+                )
+
+            task_path = eval_dir / "tasks" / f"{task_name}.yaml"
+            if not task_name or not task_path.is_file():
+                return self.reply_error(400, f"no such task: {task_name}")
+            task = load_yaml(task_path)
+
+            model = model or config.get("model")
+            if not model:
+                return self.reply_error(400, "no model given and config has no default")
+
+            with jobs_lock:
+                if slug in active_jobs:
+                    return self.reply_error(409, f"a job is already active for {slug}")
+                job = {
+                    "id": uuid.uuid4().hex,
+                    "kind": "run",
+                    "eval": slug,
+                    "status": "queued",
+                    "started": now_iso(),
+                    "run_dir": None,
+                    "error": None,
+                    "log": [],
+                }
+                jobs[job["id"]] = job
+                active_jobs[slug] = job["id"]
+
+            threading.Thread(
+                target=run_job,
+                args=(job, slug, eval_dir / "runs", task, config_name, runner, model),
+                daemon=True,
+            ).start()
+            self.reply_json(job, 202)
+
+        # --- POST /api/evals/<slug>/grade -------------------------------
+
+        def handle_grade(self, eval_dir):
+            body = self.read_json_body()
+            if body is None:
+                return
+            run_dir = resolve_run_dir(eval_dir, body.get("run"))
+            if run_dir is None:
+                return self.reply_error(404, "no such run")
+            if run_failed(load_yaml(run_dir / "run.yaml")):
+                return self.reply_error(400, "cannot grade a failed run")
+
+            grader_name = body.get("grader")
+            grader_path = eval_dir / "graders" / f"{grader_name}.yaml"
+            if not grader_name or not grader_path.is_file():
+                return self.reply_error(404, f"no such grader: {grader_name}")
+
+            grader = load_yaml(grader_path)
+            grade_dir = run_dir / "grades" / grader_name
+            self.reply_json(grade_run(run_dir, grade_dir, grader, grader_path))
+
+        # --- POST /api/evals/<slug>/dryrun ------------------------------
+
+        def handle_dryrun(self, eval_dir):
+            body = self.read_json_body()
+            if body is None:
+                return
+            run_dir = resolve_run_dir(eval_dir, body.get("run"))
+            if run_dir is None:
+                return self.reply_error(404, "no such run")
+            try:
+                grader = yaml.safe_load(body.get("grader_yaml") or "")
+            except yaml.YAMLError as ex:
+                return self.reply_error(400, f"invalid YAML: {ex}")
+            if not isinstance(grader, dict) or not isinstance(
+                grader.get("checks"), list
+            ):
+                return self.reply_error(400, "grader_yaml must have a checks list")
+
+            task = load_yaml(run_dir / "run.yaml").get("task")
+            with tempfile.TemporaryDirectory() as tmp:
+                workspace = Path(tmp)
+                try:
+                    results, halted = run_checks(
+                        run_dir, workspace, grader, eval_dir / "graders", task
+                    )
+                except (KeyError, TypeError, AttributeError) as ex:
+                    return self.reply_error(400, f"invalid grader: {ex}")
+                score, outcome = score_and_outcome(results, halted, grader)
+                artifacts = sorted(p.name for p in workspace.iterdir() if p.is_file())
+
+            self.reply_json(
+                {
+                    "checks": results,
+                    "score": score,
+                    "outcome": outcome,
+                    "tags": sorted({t for r in results for t in r.get("tags", [])}),
+                    "artifacts": artifacts,
+                }
+            )
+
+        def reply_json(self, data, status=200):
+            self.reply(status, json.dumps(data).encode(), "application/json")
+
+        def reply_error(self, status, message, **extra):
+            payload = {"error": message} | extra
+            self.reply(status, json.dumps(payload).encode(), "application/json")
 
         def reply(self, status, body, ctype):
             self.send_response(status)

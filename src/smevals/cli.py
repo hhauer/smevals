@@ -275,8 +275,12 @@ def count_existing_runs(runs_root, task_name, config_name, model):
     )
 
 
-def execute_run(runs_root, task, config_name, runner, model):
-    "Execute a single Run and record it, returning (ok, run_dir)"
+def execute_run(runs_root, task, config_name, runner, model, echo=click.echo):
+    """Execute a single Run and record it, returning (ok, run_dir)
+
+    echo defaults to click.echo for the CLI; Studio passes a quiet or
+    log-collecting callable instead so this stays usable in-process.
+    """
     started = datetime.now(timezone.utc)
     timestamp = started.strftime("%Y-%m-%dT%H-%M-%SZ")
     parent = runs_root / task["name"] / config_name / slugify(model)
@@ -288,7 +292,7 @@ def execute_run(runs_root, task, config_name, runner, model):
         run_dir = parent / f"{timestamp}-{suffix}"
     run_dir.mkdir(parents=True)
 
-    click.echo(f"{task['name']} / {config_name} / {model} ... ", nl=False)
+    echo(f"{task['name']} / {config_name} / {model} ... ", nl=False)
     env = (
         os.environ
         | scalar_env_vars("SMEVALS_TASK_", task)
@@ -329,7 +333,7 @@ def execute_run(runs_root, task, config_name, runner, model):
     status = "ok" if ok else f"FAILED (exit {result.returncode})"
     relative = os.path.relpath(run_dir)
     display = relative if len(relative) < len(str(run_dir)) else str(run_dir)
-    click.echo(f"{status} ({duration:.1f}s) -> {display}")
+    echo(f"{status} ({duration:.1f}s) -> {display}")
     return ok, run_dir
 
 
@@ -406,17 +410,12 @@ def grade_matches_grader(grade_dir, grader):
     return yaml.safe_load(snapshot.read_text()) == grader
 
 
-def grade_run(run_dir, grade_dir, grader, grader_path):
-    "Apply every Check in a Grader to one Run, writing grade.yaml"
-    # Discarded grades are really discarded - no stale artifacts survive
-    if grade_dir.exists():
-        shutil.rmtree(grade_dir)
-    grade_dir.mkdir(parents=True)
-    # Snapshot the grader spec so each Grade records exactly how it
-    # was produced, even after the grader is later edited
-    (grade_dir / "grader.yaml").write_text(grader_path.read_text())
-    # Older run.yaml files recorded just the task name, newer the full task
-    task = load_yaml(run_dir / "run.yaml").get("task")
+def run_checks(run_dir, workspace, grader, checker_base_dir, task):
+    """Execute every Check in a Grader's pipeline against a Run, returning
+    (results, halted). Checks write their artifacts into workspace - the
+    real grades/<name> dir for a persisted Grade, or a scratch directory
+    for Studio's dry-run.
+    """
     results = []
     halted = False
     for check in grader["checks"]:
@@ -425,16 +424,16 @@ def grade_run(run_dir, grade_dir, grader, grader_path):
             results.append({"checker": name, "skipped": True})
             continue
         if name in BUILTIN_CHECKERS:
-            ok, info = BUILTIN_CHECKERS[name](check, run_dir, grade_dir)
+            ok, info = BUILTIN_CHECKERS[name](check, run_dir, workspace)
         else:
             ok, info = execute_checker_program(
-                check, run_dir, grade_dir, grader_path.parent, task
+                check, run_dir, workspace, checker_base_dir, task
             )
         info = normalize_check_info(info)
         promised = check.get("creates")
         if ok and promised:
             names = [promised] if isinstance(promised, str) else promised
-            missing = [name for name in names if not (grade_dir / name).exists()]
+            missing = [name for name in names if not (workspace / name).exists()]
             if missing:
                 ok = False
                 info["notes"] = "did not create promised file(s): " + ", ".join(missing)
@@ -442,7 +441,11 @@ def grade_run(run_dir, grade_dir, grader, grader_path):
         results.append({"checker": name, "ok": ok} | info)
         if not ok and check.get("required"):
             halted = True
+    return results, halted
 
+
+def score_and_outcome(results, halted, grader):
+    "The score and pass/fail outcome for a Grade, from its Check results"
     # The score for the Grade is the last score any check produced - but
     # a check that failed without scoring leaves the Grade unscored, so a
     # stale score from an earlier check can't stand in for it
@@ -464,6 +467,22 @@ def grade_run(run_dir, grade_dir, grader, grader_path):
         outcome = "pass" if score >= threshold else "fail"
     else:
         outcome = "pass"
+    return score, outcome
+
+
+def grade_run(run_dir, grade_dir, grader, grader_path):
+    "Apply every Check in a Grader to one Run, writing grade.yaml"
+    # Discarded grades are really discarded - no stale artifacts survive
+    if grade_dir.exists():
+        shutil.rmtree(grade_dir)
+    grade_dir.mkdir(parents=True)
+    # Snapshot the grader spec so each Grade records exactly how it
+    # was produced, even after the grader is later edited
+    (grade_dir / "grader.yaml").write_text(grader_path.read_text())
+    # Older run.yaml files recorded just the task name, newer the full task
+    task = load_yaml(run_dir / "run.yaml").get("task")
+    results, halted = run_checks(run_dir, grade_dir, grader, grader_path.parent, task)
+    score, outcome = score_and_outcome(results, halted, grader)
 
     record = {
         "grader": grader["name"],
