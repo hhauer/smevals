@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import socket
 import subprocess
 import threading
@@ -22,6 +23,9 @@ import yaml
 from conftest import python_script, read_yaml, write_executable
 from smevals import studio
 from smevals.authoring import FILE_SCHEMAS, scaffold_eval
+from smevals.cli import scalar_env_vars
+
+requires_node = pytest.mark.skipif(shutil.which("node") is None, reason="requires node")
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 
@@ -1013,6 +1017,113 @@ def test_unknown_route_is_404_json(server):
     assert status == 404
     assert ctype == "application/json"
     assert "error" in json.loads(body)
+
+
+# --- the pure YAML layer vs real PyYAML --------------------------------------
+#
+# studio.html's form view round-trips files through a hand-rolled YAML
+# subset (the STUDIO_PURE block). Its contract: for every construct it
+# accepts, its value and its emitted text must mean exactly what PyYAML
+# (what the CLI reads) would say - anything it cannot promise that for
+# must refuse the document into raw-only mode with a reason. The corpus
+# in tests/studio_pure/cases.json attacks that contract; a MISMATCH is
+# silent data corruption and fails this test.
+
+STUDIO_PURE = REPO_ROOT / "tests" / "studio_pure"
+
+
+def canon(node):
+    "JS has one number type: integral floats compare equal to ints"
+    if isinstance(node, float) and node.is_integer():
+        return int(node)
+    if isinstance(node, dict):
+        return {k: canon(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [canon(v) for v in node]
+    return node
+
+
+@pytest.fixture(scope="module")
+def corpus_report():
+    result = subprocess.run(
+        [
+            "node",
+            str(STUDIO_PURE / "run_corpus.mjs"),
+            str(REPO_ROOT / "src" / "smevals" / "studio.html"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@requires_node
+def test_studio_pure_corpus_no_silent_divergence_from_pyyaml(corpus_report):
+    rows = corpus_report["cases"]
+    assert len(rows) == 54
+    failures = []
+    for row in rows:
+        name = row["name"]
+        try:
+            py_doc = yaml.safe_load(row["yaml"])
+        except yaml.YAMLError:
+            # PyYAML itself rejects it; the form view must not pretend to
+            # understand what the CLI cannot read
+            if row["jsOk"]:
+                failures.append(f"{name}: JS accepted YAML PyYAML rejects")
+            continue
+        if not row["jsOk"]:
+            if not row.get("jsError"):
+                failures.append(f"{name}: refused without a reason")
+            continue
+        if canon(py_doc) != canon(row["jsDoc"]):
+            failures.append(f"{name}: MISMATCH py={py_doc!r} js={row['jsDoc']!r}")
+        if not (row.get("reparseOk") and row.get("reparseStable")):
+            failures.append(f"{name}: emit->parse round trip drifted")
+    assert not failures, "\n".join(failures)
+
+
+@requires_node
+def test_studio_pure_corpus_saves_preserve_untouched_fields(corpus_report):
+    # The data-loss channel: edit an UNRELATED key via applyEdit, save, and
+    # re-read with PyYAML - every field the user never touched must still
+    # mean exactly what it did on disk.
+    failures = []
+    for row in corpus_report["cases"]:
+        if not row.get("jsOk") or not row.get("editOk"):
+            continue
+        try:
+            py_before = yaml.safe_load(row["yaml"])
+        except yaml.YAMLError:
+            continue
+        py_after = yaml.safe_load(row["editedEmit"])
+        if isinstance(py_after, dict):
+            py_after = {
+                k: v for k, v in py_after.items() if k != "__untouched_marker__"
+            }
+        if canon(py_before) != canon(py_after):
+            failures.append(
+                f"{row['name']}: DATA LOSS py(before)={py_before!r} "
+                f"py(after unrelated edit+save)={py_after!r}"
+            )
+    assert not failures, "\n".join(failures)
+
+
+@requires_node
+def test_studio_pure_env_mirror_matches_python_str(corpus_report):
+    # Finding: the env mirror must display what Python would receive -
+    # str() of each scalar, including "1.0" for float-typed values and
+    # True/False capitalization for bools.
+    probe = corpus_report["envProbe"]
+    assert probe["ok"], probe
+    task = yaml.safe_load(probe["doc"])
+    expected = scalar_env_vars("SMEVALS_TASK_", task)
+    mirrored = {k: v for k, v in probe["vars"].items() if k.startswith("SMEVALS_TASK_")}
+    assert mirrored == expected
+    assert probe["vars"]["SMEVALS_TASK"] == str(task["name"])
+    assert probe["vars"]["SMEVALS_PROMPT"] == str(task["prompt"])
 
 
 # --- CLI ---------------------------------------------------------------------

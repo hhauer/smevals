@@ -1043,14 +1043,45 @@ const pure = (() => {
     return e;
   };
 
-  function parsePlain(s) {
+  // Plain scalars mirror PyYAML's implicit resolvers exactly, including
+  // the YAML 1.1 bool spellings. Any spelling the two sides could read
+  // differently (octal-looking ints, base-60, underscore grouping,
+  // inf/nan, dates) throws instead, sending the doc to raw-only with the
+  // reason - refusing beats silently changing a value's meaning on save.
+  // plainFloat marks float-spelled numbers so the env mirror can render
+  // them the way Python's str() would ("1.0", not "1").
+  let plainFloat = false;
+  function parsePlain(s, line) {
+    plainFloat = false;
     if (s === "" || s === "~" || /^(null|Null|NULL)$/.test(s)) return null;
-    if (/^(true|True|TRUE)$/.test(s)) return true;
-    if (/^(false|False|FALSE)$/.test(s)) return false;
-    if (/^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$/.test(s)) {
+    if (/^(true|True|TRUE|yes|Yes|YES|on|On|ON)$/.test(s)) return true;
+    if (/^(false|False|FALSE|no|No|NO|off|Off|OFF)$/.test(s)) return false;
+    if (/^[-+]?0[0-9_]+$/.test(s)) {
+      throw yerr(`${JSON.stringify(s)} is octal in YAML 1.1 - quote it or drop the leading zero`, line);
+    }
+    if (/^[-+]?0b[01_]+$/.test(s)) {
+      throw yerr("0b binary integers are not supported - quote it or use decimal", line);
+    }
+    if (s.includes("_")
+        && /^[-+]?(0x[0-9a-fA-F_]+|[0-9][0-9_]*(\.[0-9_]*)?([eE][-+][0-9]+)?)$/.test(s)) {
+      throw yerr("underscore-grouped numbers are not supported - quote it or drop the underscores", line);
+    }
+    if (/^[-+]?[0-9]+(:[0-5]?[0-9])+(\.[0-9]*)?$/.test(s)) {
+      throw yerr(`${JSON.stringify(s)} is a base-60 number in YAML 1.1 - quote it`, line);
+    }
+    if (/^[-+]?\.(inf|Inf|INF)$/.test(s) || /^\.(nan|NaN|NAN)$/.test(s)) {
+      throw yerr("inf/nan numbers are not supported - quote the value if it is a string", line);
+    }
+    if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)
+        || /^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(\.[0-9]*)?([ \t]*(Z|[-+][0-9]{1,2}(:[0-9]{2})?))?$/.test(s)) {
+      throw yerr(`${JSON.stringify(s)} reads as a date in YAML 1.1 - quote it`, line);
+    }
+    if (/^[-+]?(0|[1-9][0-9]*)$/.test(s)) return parseInt(s, 10);
+    if (/^[-+]?0x[0-9a-fA-F]+$/.test(s)) return parseInt(s.replace("0x", ""), 16);
+    if (/^[-+]?([0-9]+\.[0-9]*|\.[0-9]+)([eE][-+][0-9]+)?$/.test(s)) {
+      plainFloat = true;
       return parseFloat(s);
     }
-    if (/^[-+]?0x[0-9a-fA-F]+$/.test(s)) return parseInt(s.replace("0x", ""), 16);
     return s;
   }
 
@@ -1058,6 +1089,7 @@ const pure = (() => {
     ({ n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\" }[c] ?? c));
 
   function parseScalarToken(raw, line) {
+    plainFloat = false; // quoted/flow tokens never carry float spelling
     const s = raw.trim();
     let m = s.match(/^"((?:[^"\\]|\\.)*)"\s*(#.*)?$/);
     if (m) return unescapeDouble(m[1]);
@@ -1081,23 +1113,35 @@ const pure = (() => {
     }
     const cut = s.search(/\s#/);
     const body = cut >= 0 ? s.slice(0, cut).trimEnd() : s;
-    return parsePlain(body);
+    return parsePlain(body, line);
   }
 
-  function matchKey(content) {
+  function matchKey(content, line) {
     let m = content.match(/^"((?:[^"\\]|\\.)*)"\s*:(?:[ \t]+(.*))?$/);
     if (m) return { key: unescapeDouble(m[1]), rest: m[2] ?? null };
     m = content.match(/^'((?:[^']|'')*)'\s*:(?:[ \t]+(.*))?$/);
     if (m) return { key: m[1].replace(/''/g, "'"), rest: m[2] ?? null };
     m = content.match(/^([^:#]+?)\s*:(?:[ \t]+(.*))?$/);
-    if (m) return { key: m[1], rest: m[2] ?? null };
+    if (m) {
+      // Bare keys must read back as the same string under PyYAML's
+      // resolvers; a key like `yes` or `012` would become True or 10
+      let plain;
+      try { plain = parsePlain(m[1], line); } catch (e) { plain = undefined; }
+      if (plain !== m[1]) {
+        throw yerr(`key ${JSON.stringify(m[1])} would not read as a string in YAML - quote it`, line);
+      }
+      return { key: m[1], rest: m[2] ?? null };
+    }
     return null;
   }
 
   function yamlParse(text) {
-    const rawLines = String(text ?? "").split("\n");
+    // Normalize CRLF/CR so block scalars never bake \r into values the
+    // CLI would not see (PyYAML treats \r as a line break too)
+    const rawLines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
     const sig = [];
     const lineMap = {};
+    const floats = {}; // keypaths of integral float-spelled scalars ("1.0")
     try {
       rawLines.forEach((raw, i) => {
         if (/^\s*$/.test(raw)) return;
@@ -1139,7 +1183,11 @@ const pure = (() => {
           lines.push(raw.slice(blockIndent));
           li += 1;
         }
-        while (lines.length && lines[lines.length - 1] === "") lines.pop();
+        // Keep chomp (|+ / >+) preserves trailing blank lines; clip and
+        // strip drop them (and strip drops the final newline too)
+        if (chomp !== "+") {
+          while (lines.length && lines[lines.length - 1] === "") lines.pop();
+        }
         let content = style === ">" ? foldLines(lines) : lines.join("\n");
         if (chomp !== "-" && content) content += "\n";
         return [content, li + 1];
@@ -1180,7 +1228,11 @@ const pure = (() => {
             while (next < sig.length && sig[next].line < resumeLine) next += 1;
             return [value, next];
           }
-          return [parseScalarToken(rest, line), idx + 1];
+          const value = parseScalarToken(rest, line);
+          if (typeof value === "number" && plainFloat && Number.isInteger(value)) {
+            floats[keyPath.join(".")] = true;
+          }
+          return [value, idx + 1];
         }
         const nxt = sig[idx + 1];
         if (nxt && nxt.indent > parentIndent) return parseNode(idx + 1, keyPath);
@@ -1196,7 +1248,7 @@ const pure = (() => {
         while (idx < sig.length && sig[idx].indent === indent
                && !isSeqItem(sig[idx].content)) {
           const L = sig[idx];
-          const km = matchKey(L.content);
+          const km = matchKey(L.content, L.line);
           if (!km) throw yerr(`expected "key: value", got ${JSON.stringify(L.content)}`, L.line);
           const kp = path.concat(km.key);
           lineMap[kp.join(".")] = L.line;
@@ -1230,7 +1282,7 @@ const pure = (() => {
           const rest = L.content.slice(2).trimStart();
           const keyCol = indent + (L.content.length - rest.length);
           if (isSeqItem(rest)) throw yerr("nested inline sequences are not supported", L.line);
-          const km = matchKey(rest);
+          const km = matchKey(rest, L.line);
           if (km) {
             sig[idx] = { indent: keyCol, content: rest, line: L.line };
             const [value, next] = parseMap(idx, keyCol, kp);
@@ -1250,10 +1302,10 @@ const pure = (() => {
           ? parseSeq(i, sig[i].indent, path)
           : parseMap(i, sig[i].indent, path);
 
-      if (!sig.length) return { ok: true, doc: {}, lineMap };
+      if (!sig.length) return { ok: true, doc: {}, lineMap, floats };
       const [doc, next] = parseNode(0, []);
       if (next !== sig.length) throw yerr("bad indentation", sig[next].line);
-      return { ok: true, doc, lineMap };
+      return { ok: true, doc, lineMap, floats };
     } catch (e) {
       if (e && e.yaml) return { ok: false, error: e.message, line: e.line ?? null };
       throw e;
@@ -1264,7 +1316,15 @@ const pure = (() => {
 
   const PLAIN_RE = /^[A-Za-z0-9_./][A-Za-z0-9_ ./,'()+?=-]*$/;
   function plainSafe(s) {
-    return PLAIN_RE.test(s) && !/\s$/.test(s) && parsePlain(s) === s;
+    if (!PLAIN_RE.test(s) || /\s$/.test(s)) return false;
+    // Belt and braces: any spelling parsePlain resolves to a non-string
+    // OR refuses (bools, numbers, octal/base-60/inf/nan/date lookalikes)
+    // must be quoted so PyYAML reads back exactly this string
+    try {
+      return parsePlain(s) === s;
+    } catch (e) {
+      return false;
+    }
   }
   const emitKey = k => plainSafe(String(k)) ? String(k) : JSON.stringify(String(k));
 
@@ -1411,12 +1471,17 @@ const pure = (() => {
     if (!parsed.ok) return { ok: false, error: parsed.error, line: parsed.line };
     const task = (parsed.doc && typeof parsed.doc === "object"
                   && !Array.isArray(parsed.doc)) ? parsed.doc : {};
-    const name = isScalar(task.name) ? pyStr(task.name) : "";
+    // Python's str() keeps float-ness ("1.0"); JS numbers do not, so
+    // integral float-spelled scalars carry a parse-time flag
+    const floats = parsed.floats || {};
+    const disp = (v, key) =>
+      (typeof v === "number" && floats[key] ? v.toFixed(1) : pyStr(v));
+    const name = isScalar(task.name) ? disp(task.name, "name") : "";
     const vars = [{ name: "SMEVALS_TASK", value: name, missing: !name }];
     if ("prompt" in task) {
       vars.push({
         name: "SMEVALS_PROMPT",
-        value: isScalar(task.prompt) ? pyStr(task.prompt) : "",
+        value: isScalar(task.prompt) ? disp(task.prompt, "prompt") : "",
         missing: !isScalar(task.prompt),
       });
     }
@@ -1432,7 +1497,7 @@ const pure = (() => {
       synthetic: true,
     });
     for (const [k, v] of Object.entries(task)) {
-      if (isScalar(v)) vars.push({ name: envKey(k), value: pyStr(v) });
+      if (isScalar(v)) vars.push({ name: envKey(k), value: disp(v, k) });
     }
     return { ok: true, vars };
   }
