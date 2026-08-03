@@ -12,6 +12,7 @@ import pytest
 import yaml
 
 from conftest import python_script, write_executable
+from smevals import authoring
 from smevals.authoring import FILE_SCHEMAS, scaffold_eval, validate_eval
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
@@ -70,6 +71,27 @@ class TestScaffoldEval:
     def test_slug_strips_disallowed_characters(self, tmp_path):
         eval_dir = scaffold_eval(tmp_path, "Weird!! Name??", "")
         assert eval_dir.name == "weird-name"
+
+    def test_interrupted_scaffold_leaves_nothing_and_retry_succeeds(
+        self, tmp_path, monkeypatch
+    ):
+        # An I/O failure mid-scaffold must not leave a half-created eval
+        # directory behind - that would permanently wedge the name.
+        real_write_yaml = authoring.write_yaml
+
+        def failing_write_yaml(path, doc):
+            if path.name == "default.yaml":
+                raise OSError("disk full")
+            real_write_yaml(path, doc)
+
+        monkeypatch.setattr(authoring, "write_yaml", failing_write_yaml)
+        with pytest.raises(OSError):
+            scaffold_eval(tmp_path, "demo", "")
+        assert list(tmp_path.iterdir()) == []
+
+        monkeypatch.undo()
+        eval_dir = scaffold_eval(tmp_path, "demo", "")
+        assert read_yaml(eval_dir / "eval.yaml")["name"] == "demo"
 
     def test_raises_on_existing_directory(self, tmp_path):
         (tmp_path / "demo").mkdir()

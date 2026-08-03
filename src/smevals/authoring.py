@@ -9,7 +9,10 @@ keys are always permitted alongside them.
 """
 
 import os
+import pathlib
 import re
+import shutil
+import tempfile
 from importlib.resources import files
 
 import yaml
@@ -45,31 +48,41 @@ def scaffold_eval(parent, name, description):
     if eval_dir.exists():
         raise ValueError(f"{eval_dir} already exists")
 
-    (eval_dir / "tasks").mkdir(parents=True)
-    (eval_dir / "configs").mkdir()
-    (eval_dir / "graders").mkdir()
+    # Build the layout inside a hidden temp sibling and rename it into
+    # place, so an I/O failure mid-scaffold never wedges the name with a
+    # half-created directory. The dot-prefix keeps the temp dir out of
+    # eval listings while it exists.
+    staging = pathlib.Path(tempfile.mkdtemp(prefix=".scaffold-", dir=parent))
+    try:
+        build_dir = staging / slug
+        (build_dir / "tasks").mkdir(parents=True)
+        (build_dir / "configs").mkdir()
+        (build_dir / "graders").mkdir()
 
-    write_yaml(eval_dir / "eval.yaml", {"name": name, "description": description})
-    write_yaml(
-        eval_dir / "tasks" / "example.yaml",
-        {"name": "example", "prompt": EXAMPLE_TASK_PROMPT},
-    )
-    write_yaml(
-        eval_dir / "configs" / "default.yaml",
-        {"name": "default", "runner": "../run-llm", "model": "gpt-4.1-mini"},
-    )
-    write_yaml(
-        eval_dir / "graders" / "default.yaml",
-        {
-            "name": "default",
-            "checks": [{"checker": "contains", "value": "", "required": True}],
-            "scoring": {"pass_threshold": 1.0},
-        },
-    )
-    runner = eval_dir / "run-llm"
-    runner.write_text(starter_run_llm())
-    runner.chmod(0o755)
-    (eval_dir / ".gitignore").write_text("runs\n")
+        write_yaml(build_dir / "eval.yaml", {"name": name, "description": description})
+        write_yaml(
+            build_dir / "tasks" / "example.yaml",
+            {"name": "example", "prompt": EXAMPLE_TASK_PROMPT},
+        )
+        write_yaml(
+            build_dir / "configs" / "default.yaml",
+            {"name": "default", "runner": "../run-llm", "model": "gpt-4.1-mini"},
+        )
+        write_yaml(
+            build_dir / "graders" / "default.yaml",
+            {
+                "name": "default",
+                "checks": [{"checker": "contains", "value": "", "required": True}],
+                "scoring": {"pass_threshold": 1.0},
+            },
+        )
+        runner = build_dir / "run-llm"
+        runner.write_text(starter_run_llm())
+        runner.chmod(0o755)
+        (build_dir / ".gitignore").write_text("runs\n")
+        os.rename(build_dir, eval_dir)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     return eval_dir
 
 
