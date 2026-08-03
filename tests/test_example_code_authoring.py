@@ -160,7 +160,9 @@ def test_run_tests_partial_credit_and_group_tags(tmp_path):
     assert result["metrics"]["shape"] is True
     assert "fails_math" in result["tags"]
     failure = result["details"]["failures"][0]
-    assert failure["name"] == "zero" and failure["expected"] == 0 and failure["got"] == 1
+    assert (
+        failure["name"] == "zero" and failure["expected"] == 0 and failure["got"] == 1
+    )
 
 
 @requires_node
@@ -199,13 +201,15 @@ export const cases = [
     (tmp_path / "cases.ts").write_text(timeout_cases)
     rel = os.path.relpath(tmp_path / "cases.ts", SUITE)
 
-    (ws / "solution.ts").write_text(
-        "export function quick(): number { return 1; }\n"
+    (ws / "solution.ts").write_text("export function quick(): number { return 1; }\n")
+    proc, result = run_checker(
+        "run-tests", ws, run_dir, check={"cases": rel, "timeout_ms": 2000}
     )
-    proc, result = run_checker("run-tests", ws, run_dir, check={"cases": rel, "timeout_ms": 2000})
     assert proc.returncode != 0
     assert "timeout" in result["tags"]
-    assert result["metrics"]["cases_total"] == 3, f"Expected cases_total=3, got {result['metrics']['cases_total']}"
+    assert (
+        result["metrics"]["cases_total"] == 3
+    ), f"Expected cases_total=3, got {result['metrics']['cases_total']}"
     assert result["score"] < 1.0, f"Score should be < 1.0, got {result['score']}"
 
 
@@ -227,11 +231,17 @@ export const cases = [
         "  return x * 2;\n"
         "}\n"
     )
-    proc, result = run_checker("run-tests", ws, run_dir, check={"cases": rel, "timeout_ms": 2000})
+    proc, result = run_checker(
+        "run-tests", ws, run_dir, check={"cases": rel, "timeout_ms": 2000}
+    )
     assert proc.returncode != 0
-    assert result["score"] == 0.0, f"Expected score 0.0 (not None), got {result['score']}"
+    assert (
+        result["score"] == 0.0
+    ), f"Expected score 0.0 (not None), got {result['score']}"
     assert "timeout" in result["tags"]
-    assert result["metrics"]["cases_total"] == 2, f"Expected cases_total=2, got {result['metrics']['cases_total']}"
+    assert (
+        result["metrics"]["cases_total"] == 2
+    ), f"Expected cases_total=2, got {result['metrics']['cases_total']}"
 
 
 @requires_node
@@ -271,10 +281,14 @@ export const cases = [
     (tmp_path / "cases.ts").write_text(nan_cases)
     rel = os.path.relpath(tmp_path / "cases.ts", SUITE)
 
-    (ws / "solution.ts").write_text("export function double(x: number): number { return x * 2; }\n")
+    (ws / "solution.ts").write_text(
+        "export function double(x: number): number { return x * 2; }\n"
+    )
     proc, result = run_checker("run-tests", ws, run_dir, check={"cases": rel})
     assert proc.returncode != 0, "Expected non-zero exit code"
-    assert result["score"] < 1.0, f"NaN should not equal null; score should be < 1.0, got {result['score']}"
+    assert (
+        result["score"] < 1.0
+    ), f"NaN should not equal null; score should be < 1.0, got {result['score']}"
     assert "fails_math" in result["tags"]
 
 
