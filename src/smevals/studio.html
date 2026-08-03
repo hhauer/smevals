@@ -1033,11 +1033,152 @@ textarea.raw-text:focus-visible { outline: none; box-shadow: none; border: none;
 .dry-note { font-size: var(--fs-xs); color: var(--text-3); margin: var(--sp-2) 0 0; }
 .dry-empty-cell { font-size: var(--fs-xs); color: var(--text-3); font-style: italic; padding: 3px 0; }
 .tree-count { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); }
+
+/* ---- header nav ----------------------------------------------------------- */
+.header-nav { display: flex; gap: var(--sp-4); }
+.header-nav a { font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); }
+.header-nav a:hover { color: var(--text); text-decoration: none; }
+
+/* ---- shelf: results strip -------------------------------------------------- */
+.card-results {
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px dashed var(--line);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.card-results .best-score { color: var(--accent); font-weight: 700; }
+.card-results.none { color: var(--text-3); font-style: italic; }
+
+/* ---- results: badges, leaderboard, tag shares, metric blocks -------------- */
+.results-badges { display: flex; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-3) var(--sp-4) 0; }
+.chip-quiet {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.results-body { padding: var(--sp-3) var(--sp-5) var(--sp-5); overflow-y: auto; }
+.results-section { margin-top: var(--sp-5); }
+.results-section:first-child { margin-top: var(--sp-3); }
+.results-section h3 {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
+  cursor: pointer;
+}
+.lb-row:last-child { border-bottom-color: transparent; }
+.lb-row:hover { background: var(--surface-2); color: var(--text); }
+.lb-rank {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.lb-mid { flex: 1; min-width: 0; }
+.lb-name { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text); overflow-wrap: anywhere; }
+.lb-sub { font-size: var(--fs-xs); color: var(--text-3); margin-top: 1px; }
+.lb-meter { height: 4px; border-radius: 2px; background: var(--surface-2); margin-top: 5px; overflow: hidden; }
+.lb-meter > div { height: 100%; background: var(--pass); border-radius: 2px; }
+.lb-score {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  text-align: right;
+  min-width: 92px;
+  flex: none;
+}
+.lb-score .stderr { color: var(--text-3); font-weight: 400; }
+.lb-empty { font-size: var(--fs-sm); color: var(--text-3); font-style: italic; padding: var(--sp-2) 0; }
+.tagshare-row { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); padding: 3px 0; }
+.tagshare-name { font-family: var(--font-mono); color: var(--text); flex: none; overflow-wrap: anywhere; }
+.tagshare-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.tagshare-bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
+.tagshare-pct { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); width: 74px; text-align: right; flex: none; }
+.metric-row { display: flex; gap: var(--sp-2); padding: 2px 0; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.metric-row .k { width: 150px; flex: none; color: var(--text-3); overflow-wrap: anywhere; }
+.metric-row .v { color: var(--text-2); }
+.runs-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  padding: var(--sp-2) var(--sp-3);
+  margin: var(--sp-2) var(--sp-3) 0;
+  background: var(--accent-soft);
+  border-radius: var(--r-sm);
+}
+.runs-filter b { color: var(--text); font-family: var(--font-mono); }
+
+/* ---- global results matrix ------------------------------------------------ */
+.matrix-wrap { overflow-x: auto; padding: var(--sp-2) var(--sp-2) var(--sp-3); }
+table.matrix { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
+table.matrix th, table.matrix td {
+  padding: 6px 12px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+table.matrix th:first-child, table.matrix td:first-child {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+}
+table.matrix thead th {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+}
+table.matrix thead th:first-child { background: var(--surface); }
+table.matrix thead th a { color: var(--text-2); }
+table.matrix td.best { background: var(--accent-soft); color: var(--accent); font-weight: 700; border-radius: var(--r-sm); }
+table.matrix td.mcell { color: var(--text-2); }
+table.matrix td.empty { color: var(--text-3); }
+.matrix-mark { color: var(--warn); margin-left: 3px; cursor: help; }
+.matrix-foot { margin: var(--sp-3) var(--sp-4) 0; font-size: var(--fs-xs); color: var(--text-3); }
 </style>
 </head>
 <body>
 <header>
   <a class="wordmark" href="#/">smevals<span class="studio">studio</span></a>
+  <nav class="header-nav"><a href="#/results">Results</a></nav>
   <span id="header-meta"></span>
 </header>
 <main id="view"></main>
@@ -1052,7 +1193,13 @@ const view = document.getElementById("view");
 // see renderWorkbench/route. Unsaved buffers and an in-flight job survive an
 // in-app trip to the shelf and back this way, instead of the shelf discarding
 // state.wb outright.
-const state = { evals: null, models: null, wb: null, wbCache: new Map() };
+// resultsMatrix: the global #/results cache; sweepActive starts false and
+// stays inert here - Task 4's sweep board flips it while a sweep job runs,
+// which is what turns the poll ticker below on.
+const state = {
+  evals: null, models: null, wb: null, wbCache: new Map(),
+  resultsMatrix: null, sweepActive: false,
+};
 
 // --- studio key ------------------------------------------------------------
 //
@@ -1123,7 +1270,21 @@ function ago(iso) {
   return new Date(iso).toISOString().slice(0, 10);
 }
 
+// A single score, or a mean +- stderr pair - formatted exactly like
+// cli.py's format_mean_stderr, so a Results surface's numbers read
+// identically to `smevals report`'s for the same data.
+const fmtScore = v => v == null ? "–" : v.toFixed(2);
+const fmtMeanStderr = (mean, stderr) => mean == null ? "–"
+  : stderr != null ? `${mean.toFixed(2)} ±${stderr.toFixed(2)}` : mean.toFixed(2);
+
 // --- shelf ---------------------------------------------------------------
+
+function resultsStripHtml(e) {
+  if (!e.best) return `<div class="card-results none">not graded yet</div>`;
+  return `
+    <div class="card-results">best <span class="best-score">${
+      esc(fmtScore(e.best.score))}</span> · ${esc(e.best.model)} (${esc(e.best.config)})</div>`;
+}
 
 function cardHtml(e) {
   const counts = ["tasks", "configs", "graders"]
@@ -1153,6 +1314,7 @@ function cardHtml(e) {
         <span>${counts}</span>
         <span class="lastrun">${run}</span>
       </div>
+      ${resultsStripHtml(e)}
     </a>`;
 }
 
@@ -1846,10 +2008,16 @@ async function loadWorkbench(slug) {
     slug, detail: null, schemas: null, buffers: new Map(),
     open: null, surface: null, mirrorConfig: null, configCache: {}, err: null,
     // bench state: the eval's runs, the run form, the active job, and the
-    // dry-run comparison all live here so they survive file switches
-    runs: null, runsErr: null, bench: { model: "" }, benchErr: null,
+    // dry-run comparison all live here so they survive file switches. runs
+    // stays null (unfetched) until the first surface that needs rows calls
+    // ensureRuns - see below; runsPromise is its single-flight lock.
+    runs: null, runsErr: null, runsPromise: null, runsFilter: null,
+    bench: { model: "" }, benchErr: null,
     job: null, drySel: null, dry: null, dryErr: null, dryPending: false,
     detailsState: {}, runText: {},
+    // results tab state (Task 2): the eval_results document for the
+    // currently-picked grader, fetched lazily the same way
+    results: null, resultsGrader: null, resultsErr: null,
   };
   state.wb = wb;
   view.innerHTML = `<div class="crumb"><a href="#/">← shelf</a></div>`;
@@ -1868,7 +2036,9 @@ async function loadWorkbench(slug) {
       .map(f => f.path.replace(/^configs\//, "").replace(/\.yaml$/, ""));
     wb.mirrorConfig = configs.includes("default") ? "default" : configs[0] || null;
     loadConfigCache(wb);
-    loadRuns(wb).then(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+    // Runs are NOT fetched here (the phase-1 debt this task pays off): a
+    // workbench that only shows files never pays for the full runs listing.
+    // ensureRuns(wb) is called lazily by whichever surface first needs rows.
     loadModels(wb);
     return wb;
   } catch (ex) {
@@ -1907,7 +2077,8 @@ function stashWorkbench() {
   if (state.wb) state.wbCache.set(state.wb.slug, state.wb);
 }
 
-// surface: { file, raw } for the editor, { runs: true, run } for the bench
+// surface: { file, raw } for the editor, { runs: true, run, filter } for the
+// bench, { results: true } for the Results tab
 async function renderWorkbench(slug, surface) {
   document.body.classList.add("wb");
   let wb = state.wb && state.wb.slug === slug ? state.wb : null;
@@ -1934,6 +2105,7 @@ async function renderWorkbench(slug, surface) {
     }
   }
   wb.surface = surface;
+  if (surface.runs) wb.runsFilter = surface.filter || null;
   const fpath = surface.file || null;
   wb.open = fpath;
   if (fpath && !wb.buffers.has(fpath)) {
@@ -1985,6 +2157,7 @@ function renderPanes(wb) {
   renderHeadBadge(wb);
   renderTree(wb);
   if (wb.surface && wb.surface.runs) renderRunsPane(wb);
+  else if (wb.surface && wb.surface.results) renderResultsPane(wb);
   else renderEditor(wb);
   renderContext(wb);
 }
@@ -1994,6 +2167,7 @@ function renderPanes(wb) {
 function renderBenchSurfaces(wb) {
   renderTree(wb);
   if (wb.surface && wb.surface.runs) renderRunsPane(wb);
+  else if (wb.surface && wb.surface.results) renderResultsPane(wb);
   renderContext(wb);
 }
 
@@ -2043,7 +2217,11 @@ function renderTree(wb) {
               data-goto="runs">
         <span class="fname">runs/</span>
         <span class="flags"><span class="tree-count">${
-          wb.runs === null ? "…" : wb.runs.length}</span></span>
+          wb.info.runs?.total ?? 0}</span></span>
+      </button>
+      <button type="button" class="tree-item${wb.surface && wb.surface.results ? " sel" : ""}"
+              data-goto="results">
+        <span class="fname">results</span>
       </button>
     </div>`;
   box.querySelectorAll(".tree-item[data-path]").forEach(el =>
@@ -2052,6 +2230,9 @@ function renderTree(wb) {
     }));
   box.querySelector("[data-goto=runs]").addEventListener("click", () => {
     location.hash = runsHash(wb);
+  });
+  box.querySelector("[data-goto=results]").addEventListener("click", () => {
+    location.hash = resultsHash(wb);
   });
 }
 
@@ -2602,6 +2783,7 @@ function renderContext(wb) {
   const box = document.getElementById("wb-ctx");
   if (!box) return;
   if (wb.surface && wb.surface.runs) return renderBenchNote(wb, box);
+  if (wb.surface && wb.surface.results) return renderResultsNote(wb, box);
   const buf = wb.open && wb.buffers.get(wb.open);
   const kind = buf ? pure.docKind(buf.path) : null;
   if (kind === "task") return renderTaskMirror(wb, buf, box);
@@ -2771,6 +2953,13 @@ function renderConfigContext(wb, buf, box) {
 
 const runsHash = wb => `#/eval/${enc(wb.slug)}/runs`;
 const runHash = (wb, run) => `#/eval/${enc(wb.slug)}/runs/${enc(run)}`;
+const runsFilterHash = (wb, config, model) => {
+  const params = new URLSearchParams();
+  if (config) params.set("config", config);
+  if (model) params.set("model", model);
+  const q = params.toString();
+  return runsHash(wb) + (q ? `?${q}` : "");
+};
 const graderNames = wb => (wb.detail.files.graders || [])
   .map(f => f.path.replace(/^graders\//, "").replace(/\.yaml$/, ""));
 const fileStem = path => String(path).replace(/^.*\//, "").replace(/\.yaml$/, "");
@@ -2779,19 +2968,35 @@ const fmtDuration = s => s == null ? "" :
   s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`
           : `${Number(s).toFixed(1)}s`;
 
-async function loadRuns(wb, force = false) {
-  if (wb.runs !== null && !force) return;
-  try {
-    const rows = await api(`/api/evals/${enc(wb.slug)}/runs`);
-    if (state.wb !== wb) return;
-    rows.sort((a, b) => String(b.started || "").localeCompare(String(a.started || "")));
-    wb.runs = rows;
-    wb.runsErr = null;
-  } catch (ex) {
-    if (state.wb !== wb) return;
-    if (wb.runs === null) wb.runs = [];
-    wb.runsErr = ex.message;
+// The eval's Runs, fetched lazily and only once: the runs list/detail, the
+// dry-run picker, and the bench's latest-run panel each call this before
+// reading wb.runs, instead of loadWorkbench fetching it eagerly for every
+// workbench open (the phase-1 debt this task pays off). Cached on wb.runs;
+// force re-fetches (after a run or grade lands). Concurrent callers share
+// one in-flight request (single-flight) rather than issuing duplicate
+// fetches for the same tick.
+async function ensureRuns(wb, force = false) {
+  if (!force) {
+    if (wb.runs !== null) return;
+    if (wb.runsPromise) return wb.runsPromise;
   }
+  const promise = (async () => {
+    try {
+      const rows = await api(`/api/evals/${enc(wb.slug)}/runs`);
+      if (state.wb !== wb) return;
+      rows.sort((a, b) => String(b.started || "").localeCompare(String(a.started || "")));
+      wb.runs = rows;
+      wb.runsErr = null;
+    } catch (ex) {
+      if (state.wb !== wb) return;
+      if (wb.runs === null) wb.runs = [];
+      wb.runsErr = ex.message;
+    } finally {
+      if (wb.runsPromise === promise) wb.runsPromise = null;
+    }
+  })();
+  wb.runsPromise = promise;
+  return promise;
 }
 
 // Model suggestions for the run form's combo box, fetched once per session
@@ -2869,6 +3074,7 @@ function renderRunsPane(wb) {
   if (!box) return;
   if (wb.runs === null) {
     box.innerHTML = `<div class="ed-empty"><p>Loading runs…</p></div>`;
+    ensureRuns(wb).then(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
     return;
   }
   if (wb.surface.run) renderRunDetail(wb, box);
@@ -2894,16 +3100,30 @@ function runRowHtml(row) {
 }
 
 function renderRunsList(wb, box) {
+  const filter = wb.runsFilter;
+  const rows = filter
+    ? wb.runs.filter(r => (!filter.config || r.config === filter.config)
+        && (!filter.model || r.model === filter.model))
+    : wb.runs;
   box.innerHTML = `
     <div class="ed-head">
       <span class="ed-path">runs</span>
       <span class="ed-actions"><span class="bench-hint">${
-        esc(plural(wb.runs.length, "run"))}</span></span>
+        esc(plural(rows.length, "run"))}${
+          filter ? ` of ${wb.runs.length}` : ""}</span></span>
     </div>
+    ${filter ? `
+      <div class="runs-filter">showing
+        <b>${esc(filter.config || "any config")}</b> ·
+        <b>${esc(filter.model || "any model")}</b> — from the Results leaderboard
+        <a href="${runsHash(wb)}">clear filter</a>
+      </div>` : ""}
     ${wb.runsErr ? `<div class="ed-err">${errorBox(wb.runsErr)}</div>` : ""}
-    ${wb.runs.length
-      ? `<div class="runs-list">${wb.runs.map(runRowHtml).join("")}</div>`
-      : `<div class="ed-empty">
+    ${rows.length
+      ? `<div class="runs-list">${rows.map(runRowHtml).join("")}</div>`
+      : filter
+        ? `<div class="ed-empty"><p>No runs match this filter.</p></div>`
+        : `<div class="ed-empty">
           <h3>No runs yet</h3>
           <p>A run is one task attempted once: the Runner's stdout lands in
              <code>output.txt</code> under <code>runs/</code>, ready for
@@ -3003,7 +3223,7 @@ async function doGrade(wb, run, grader, errSlot, button) {
   try {
     await api(`/api/evals/${enc(wb.slug)}/grade`, { body: { run, grader } });
     if (state.wb !== wb) return;
-    await loadRuns(wb, true);
+    await ensureRuns(wb, true);
     if (state.wb !== wb) return;
     renderBenchSurfaces(wb);
     // A fresh grade changes what a dry-run comparison is measured against
@@ -3100,6 +3320,9 @@ function benchRunHtml(wb, buf) {
 function latestRunHtml(wb) {
   const job = wb.job;
   if (!job || job.status === "queued" || job.status === "running") return "";
+  if (job.run_dir && wb.runs === null) {
+    ensureRuns(wb).then(() => { if (state.wb === wb) renderContext(wb); });
+  }
   const row = job.run_dir && wb.runs
     ? wb.runs.find(r => r.run === job.run_dir) : null;
   return `
@@ -3210,7 +3433,7 @@ async function pollJob(wb, jobId) {
     renderContext(wb);
   }
   if (!active()) return;
-  await loadRuns(wb, true);
+  await ensureRuns(wb, true);
   if (!active()) return;
   renderBenchSurfaces(wb);
 }
@@ -3221,6 +3444,7 @@ function benchDryHtml(wb, buf) {
   let body;
   if (wb.runs === null) {
     body = `<div class="bench-hint">loading runs…</div>`;
+    ensureRuns(wb).then(() => { if (state.wb === wb) renderContext(wb); });
   } else if (!wb.runs.length) {
     body = `
       <div class="ctx-note">
@@ -3397,6 +3621,314 @@ function dryPanelHtml(wb, buf) {
     </div>`;
 }
 
+// --- results tab (#/eval/<slug>/results) -----------------------------------
+//
+// One eval's Results-tab document (site.eval_results via GET .../results):
+// grader picker, leaderboard (config x model), tag shares, per-model metric
+// blocks, and the excluded/ungraded/stale annotations as quiet badges -
+// numbers only ever come from the API, this file just formats them.
+
+const resultsHash = wb => `#/eval/${enc(wb.slug)}/results`;
+
+async function loadEvalResults(wb, grader, force = false) {
+  if (wb.results !== null && !force) return;
+  try {
+    const data = await api(`/api/evals/${enc(wb.slug)}/results${
+      grader ? `?grader=${enc(grader)}` : ""}`);
+    if (state.wb !== wb) return;
+    wb.results = data;
+    wb.resultsGrader = data.grader;
+    wb.resultsErr = null;
+  } catch (ex) {
+    if (state.wb !== wb) return;
+    wb.resultsErr = ex.message;
+  }
+}
+
+// Competition ranking over groups already sorted mean-descending (site.py's
+// order): a tie shares a rank, and the next distinct value skips ahead by
+// the number of rows tied ahead of it (1, 1, 3 - never 1, 1, 2).
+function competitionRanks(groups) {
+  const ranks = [];
+  let rank = 0;
+  groups.forEach((g, i) => {
+    if (i === 0 || g.mean !== groups[i - 1].mean) rank = i + 1;
+    ranks.push(rank);
+  });
+  return ranks;
+}
+
+function leaderboardHtml(groups) {
+  if (!groups.length) {
+    return `<div class="lb-empty">No graded runs yet under this grader.</div>`;
+  }
+  const ranks = competitionRanks(groups);
+  return groups.map((g, i) => `
+    <button type="button" class="lb-row"
+            data-config="${esc(g.config ?? "")}" data-model="${esc(g.model ?? "")}">
+      <span class="lb-rank">${ranks[i]}</span>
+      <span class="lb-mid">
+        <div class="lb-name">${esc(g.model ?? "?")}
+          <span class="lb-sub">(${esc(g.config ?? "?")})</span></div>
+        <div class="lb-sub">${plural(g.n, "run")}${
+          g.fail_count ? `, ${plural(g.fail_count, "fail")}` : ""} ·
+          ${Math.round(g.pass_rate * 100)}% pass</div>
+        <div class="lb-meter"><div style="width:${Math.round(g.pass_rate * 100)}%"></div></div>
+      </span>
+      <span class="lb-score">${esc(fmtMeanStderr(g.mean, g.stderr))}</span>
+    </button>`).join("");
+}
+
+function tagSharesHtml(tags, total) {
+  const entries = Object.entries(tags || {})
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (!entries.length) return `<div class="lb-empty">No tags recorded yet.</div>`;
+  return entries.map(([tag, n]) => {
+    const pct = total ? Math.round(n / total * 100) : 0;
+    return `
+      <div class="tagshare-row">
+        <span class="tagshare-name">#${esc(tag)}</span>
+        <span class="tagshare-bar"><div style="width:${pct}%"></div></span>
+        <span class="tagshare-pct">${n}/${total} (${pct}%)</span>
+      </div>`;
+  }).join("");
+}
+
+function metricRowsHtml(metrics) {
+  const keys = Object.keys(metrics || {}).sort();
+  if (!keys.length) return `<div class="lb-empty">No metrics recorded.</div>`;
+  return keys.map(key => {
+    const m = metrics[key];
+    const display = m.type === "bool"
+      ? `${Math.round(m.true_rate * 100)}% true (n=${m.n})`
+      : `${esc(fmtMeanStderr(m.mean, m.stderr))} (n=${m.n})`;
+    return `<div class="metric-row"><span class="k">${esc(key)}</span><span class="v">${display}</span></div>`;
+  }).join("");
+}
+
+function metricBlocksHtml(wb, groups) {
+  if (!groups.length) return `<div class="lb-empty">No metrics recorded.</div>`;
+  return groups.map(g => foldHtml(
+    wb, `results:${wb.resultsGrader}:${g.config}:${g.model}`,
+    `${g.model} (${g.config})`,
+    `<div class="grade-checks">${metricRowsHtml(g.metrics)}</div>`, false)).join("");
+}
+
+function resultsBadgesHtml(r) {
+  return `
+    <div class="results-badges">
+      <span class="chip-quiet" title="Failed runs are harness errors, not evidence, and never enter a mean">${
+        esc(plural(r.excluded_failed, "run"))} excluded (failed)</span>
+      <span class="chip-quiet" title="Non-failed runs with no grade yet from this grader">${
+        esc(plural(r.ungraded, "run"))} ungraded</span>
+      <span class="chip-quiet" title="Grades whose snapshot no longer matches this grader's current spec">${
+        esc(plural(r.stale, "grade"))} stale</span>
+    </div>`;
+}
+
+function renderResultsPane(wb) {
+  const box = document.getElementById("wb-editor");
+  if (!box) return;
+  if (wb.results === null) {
+    box.innerHTML = wb.resultsErr
+      ? `<div class="ed-head"><span class="ed-path">results</span></div>
+         <div class="ed-err">${errorBox(wb.resultsErr)}</div>`
+      : `<div class="ed-empty"><p>Loading results…</p></div>`;
+    loadEvalResults(wb, wb.resultsGrader).then(() => {
+      if (state.wb === wb) renderBenchSurfaces(wb);
+    });
+    return;
+  }
+  const r = wb.results;
+  const graders = r.graders || [];
+  box.innerHTML = `
+    <div class="ed-head">
+      <span class="ed-path">results</span>
+      <span class="ed-actions">
+        ${graders.length > 1 ? `
+          <label class="bench-hint" for="results-grader">grader</label>
+          <select id="results-grader">
+            ${graders.map(g => `
+              <option value="${esc(g)}" ${g === r.grader ? "selected" : ""}>${esc(g)}</option>`).join("")}
+          </select>` : graders.length === 1
+            ? `<span class="bench-hint">grader: <b>${esc(r.grader)}</b></span>`
+            : `<span class="bench-hint">no graders yet</span>`}
+      </span>
+    </div>
+    ${wb.resultsErr ? `<div class="ed-err">${errorBox(wb.resultsErr)}</div>` : ""}
+    ${resultsBadgesHtml(r)}
+    ${!graders.length ? `
+      <div class="ed-empty">
+        <h3>No graders yet</h3>
+        <p>A grader is an ordered pipeline of checks that scores what a
+           Runner produced. Add one under <code>graders/</code> and grade a
+           run from its page to see it here.</p>
+      </div>` : `
+      <div class="results-body">
+        <div class="results-section">
+          <h3>Leaderboard</h3>
+          ${leaderboardHtml(r.groups)}
+        </div>
+        <div class="results-section">
+          <h3>Tags</h3>
+          ${tagSharesHtml(r.tags, r.total)}
+        </div>
+        <div class="results-section">
+          <h3>Per-model metrics</h3>
+          ${metricBlocksHtml(wb, r.groups)}
+        </div>
+      </div>`}`;
+  box.querySelectorAll(".lb-row").forEach(el => el.addEventListener("click", () => {
+    location.hash = runsFilterHash(wb, el.dataset.config || null, el.dataset.model || null);
+  }));
+  const graderSel = box.querySelector("#results-grader");
+  if (graderSel) graderSel.addEventListener("change", () => {
+    wb.resultsGrader = graderSel.value;
+    wb.results = null;
+    wb.resultsErr = null;
+    renderResultsPane(wb);
+  });
+  bindFolds(wb, box);
+}
+
+function renderResultsNote(wb, box) {
+  box.innerHTML = `
+    <p class="ctx-eyebrow">Results</p>
+    <p class="ctx-sub">reporter semantics · same numbers as smevals report</p>
+    <div class="ctx-note">
+      <p>The leaderboard groups graded runs by config × model. A failed run
+         (the Runner exited non-zero) is a harness error, not evidence, so
+         it never enters a mean — see <b>excluded</b> above. <b>Ungraded</b>
+         counts non-failed runs this grader hasn't scored yet;
+         <b>stale</b> counts grades whose snapshot no longer matches the
+         grader's current spec — open it and regrade to refresh.</p>
+      <p>Click a leaderboard row to see its runs, filtered to that config
+         and model; open a run there for the full detail.</p>
+    </div>`;
+}
+
+// --- global results matrix (#/results) --------------------------------------
+//
+// The executive summary (site.results_matrix via GET /api/results): models x
+// evals, mean default-grader scores, best-per-eval highlighted, incomplete
+// cells marked. Reuses loadEvals() for eval names (the matrix payload only
+// carries slugs) - a formatting lookup, not an aggregation.
+
+async function loadResultsMatrix(force = false) {
+  if (state.resultsMatrix !== null && !force) return state.resultsMatrix;
+  state.resultsMatrix = await api("/api/results");
+  return state.resultsMatrix;
+}
+
+function matrixHtml(matrix, names) {
+  if (!matrix.evals.length || !matrix.models.length) {
+    return `
+      <div class="card empty-shelf">
+        <h2>No results yet</h2>
+        <p>This matrix fills in once a model has at least one run recorded
+           against an eval. Run a task from a workbench's bench panel, or
+           from a terminal: <code>smevals run . -t &lt;task&gt;</code> —
+           then come back.</p>
+      </div>`;
+  }
+  const bestBySlug = {};
+  for (const slug of matrix.evals) {
+    let best = null;
+    for (const model of matrix.models) {
+      const cell = matrix.matrix[model]?.[slug];
+      if (cell && cell.mean != null && (best === null || cell.mean > best)) best = cell.mean;
+    }
+    bestBySlug[slug] = best;
+  }
+  const incomplete = [];
+  const rows = matrix.models.map(model => `
+    <tr>
+      <td>${esc(model)}</td>
+      ${matrix.evals.map(slug => {
+        const cell = matrix.matrix[model]?.[slug];
+        if (!cell) return `<td class="empty">–</td>`;
+        const isBest = cell.mean != null && cell.mean === bestBySlug[slug];
+        if (cell.incomplete) {
+          incomplete.push(`${model} · ${names[slug] || slug} (${cell.n}/${cell.target_n})`);
+        }
+        const title = cell.incomplete ? ` title="${esc(`${cell.n}/${cell.target_n} runs so far`)}"` : "";
+        return `<td class="${isBest ? "best" : "mcell"}"${title}>${
+          esc(fmtScore(cell.mean))}${cell.incomplete ? `<span class="matrix-mark">*</span>` : ""}</td>`;
+      }).join("")}
+    </tr>`).join("");
+  return `
+    <div class="card matrix-wrap">
+      <table class="matrix">
+        <thead><tr><th>model</th>${matrix.evals.map(slug =>
+          `<th><a href="#/eval/${enc(slug)}/results">${esc(names[slug] || slug)}</a></th>`).join("")}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    ${incomplete.length ? `
+      <div class="matrix-foot">* incomplete (n/target): ${incomplete.map(esc).join(" · ")}</div>` : ""}`;
+}
+
+// Used by the poll ticker: re-fetches and swaps the table in place, without
+// the "Loading…" reset a full renderResultsMatrix() would flash.
+async function refreshResultsMatrix() {
+  const slot = document.getElementById("results-matrix-slot");
+  if (!slot) return;
+  try {
+    const [matrix, evals] = await Promise.all([
+      loadResultsMatrix(true), loadEvals(true)]);
+    const names = Object.fromEntries(evals.map(e => [e.slug, e.name]));
+    slot.innerHTML = matrixHtml(matrix, names);
+  } catch { /* keep showing the last good matrix on a transient blip */ }
+}
+
+async function renderResultsMatrix() {
+  document.body.classList.remove("wb");
+  view.innerHTML = `
+    <div class="crumb"><a href="#/">← shelf</a></div>
+    <h2 style="margin: 0 0 var(--sp-4); font-size: var(--fs-xl); font-weight: 650;
+               letter-spacing: -0.02em">Results</h2>
+    <div id="results-matrix-slot">Loading…</div>`;
+  let matrix, evals;
+  try {
+    [matrix, evals] = await Promise.all([loadResultsMatrix(true), loadEvals()]);
+  } catch (ex) {
+    document.getElementById("results-matrix-slot").innerHTML = errorBox(ex.message);
+    return;
+  }
+  const names = Object.fromEntries(evals.map(e => [e.slug, e.name]));
+  document.getElementById("results-matrix-slot").innerHTML = matrixHtml(matrix, names);
+}
+
+// --- live poll ticker --------------------------------------------------------
+//
+// Live like serve: while a sweep job is active, re-fetch whichever results
+// surface is visible (the per-eval tab, the global matrix, or the shelf's
+// results strips) every ~3s. state.sweepActive starts false, so this stays
+// inert until Task 4's sweep board flips it.
+
+let pollTickBusy = false;
+
+async function pollResultsTick() {
+  if (!state.sweepActive || pollTickBusy) return;
+  pollTickBusy = true;
+  try {
+    if (state.wb && state.wb.surface && state.wb.surface.results) {
+      const wb = state.wb;
+      await loadEvalResults(wb, wb.resultsGrader, true);
+      if (state.wb === wb) renderResultsPane(wb);
+    } else if (document.getElementById("results-matrix-slot")) {
+      await refreshResultsMatrix();
+    } else if (!state.wb && document.querySelector(".shelf-grid")
+        && !document.querySelector("form.new-eval")) {
+      await renderShelf();
+    }
+  } finally {
+    pollTickBusy = false;
+  }
+}
+
+setInterval(pollResultsTick, 3000);
+
 // --- global editor keys + unload guard -----------------------------------
 
 document.addEventListener("keydown", event => {
@@ -3429,14 +3961,30 @@ window.addEventListener("beforeunload", event => {
 
 function route() {
   const hash = location.hash || "#/";
-  const m = hash.match(
-    /^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?|(\/runs)(?:\/([^/]+))?)?$/);
+  const [hashPath, hashQuery] = hash.split("?");
+  if (hashPath === "#/results") {
+    stashWorkbench();
+    state.wb = null;
+    document.body.classList.remove("wb");
+    return renderResultsMatrix();
+  }
+  const m = hashPath.match(
+    /^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?|(\/runs)(?:\/([^/]+))?|(\/results))?$/);
   document.body.classList.toggle("wb", !!m);
   if (m) {
     const slug = decodeURIComponent(m[1]);
+    if (m[6]) {
+      return renderWorkbench(slug, { results: true });
+    }
     if (m[4]) {
-      return renderWorkbench(slug,
-        { runs: true, run: m[5] ? decodeURIComponent(m[5]) : null });
+      const params = new URLSearchParams(hashQuery || "");
+      const config = params.get("config");
+      const model = params.get("model");
+      return renderWorkbench(slug, {
+        runs: true,
+        run: m[5] ? decodeURIComponent(m[5]) : null,
+        filter: config || model ? { config, model } : null,
+      });
     }
     return renderWorkbench(slug,
       { file: m[2] ? decodeURIComponent(m[2]) : null, raw: !!m[3] });

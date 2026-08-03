@@ -181,13 +181,30 @@ def test_studio_html_interpolated_tails_match_studio_py_routes():
     html = studio.studio_html()
     tails = set(re.findall(r"/api/evals/\$\{[^}]*\}/([A-Za-z0-9_]+)", html))
     assert tails, "studio.html should make nested /api/evals/<slug>/... calls"
-    # The bench (Task 6) must actually wire its run/grade/dry-run loop
-    assert {"file", "runs", "run", "grade", "dryrun"} <= tails
+    # The bench (Task 6) must actually wire its run/grade/dry-run loop; the
+    # per-eval Results tab (Task 2) must call the Results-tab document
+    assert {"file", "runs", "run", "grade", "dryrun", "results"} <= tails
 
     studio_py = pathlib.Path(studio.__file__).read_text()
     served = set(re.findall(r'tail == "([A-Za-z0-9_]+)"', studio_py))
     assert served, "studio.py should dispatch on tail literals"
     assert tails <= served, f"studio.html calls unserved tails: {tails - served}"
+
+
+def test_studio_html_wires_results_routes():
+    """Task 2: the global matrix (#/results) and the per-eval Results tab
+    (#/eval/<slug>/results) are wired into the router and call Task 1's
+    read endpoints - one aggregation path, never a second one in the JS."""
+    html = studio.studio_html()
+
+    # the global matrix: a nav link, a route handler, and the endpoint call
+    assert "#/results" in html
+    assert "renderResultsMatrix" in html
+    assert 'api("/api/results")' in html
+
+    # the per-eval tab: routed as a workbench surface, calling eval_results
+    assert "results: true" in html
+    assert "/api/evals/${enc(wb.slug)}/results" in html
 
 
 # --- GET /api/schemas --------------------------------------------------------
