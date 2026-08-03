@@ -1,7 +1,7 @@
 """Tests for `smevals grade`: built-in and custom Checkers, the Checker
 contract, scoring rules, and grade skip/stale/regrade behavior."""
 
-from conftest import python_script, read_yaml, run_dirs
+from conftest import python_script, read_yaml, run_dirs, write_run
 
 # A reusable checker driven entirely by its Check configuration:
 # score: emit that score, tags: emit those tags, exit: exit with that code
@@ -439,3 +439,103 @@ def test_grade_skips_failed_runs(invoke, make_eval, tmp_path):
     graded = [d for d in run_dirs(eval_dir) if (d / "grades").exists()]
     assert len(graded) == 1
     assert read_yaml(graded[0] / "run.yaml")["exit_code"] == 0
+
+
+# --- grade_pending: the grading loop `grade` delegates to -----------------
+
+
+def collecting_echo(lines):
+    "An echo capturing completed lines, honoring grade_pending's nl=False use"
+    buffer = []
+
+    def echo(message="", nl=True):
+        buffer.append(str(message))
+        if nl:
+            lines.append("".join(buffer))
+            buffer.clear()
+
+    return echo
+
+
+def test_grade_pending_counts_and_echoes(invoke, make_eval):
+    from smevals.cli import grade_pending
+
+    eval_dir = make_eval()
+    invoke("run", eval_dir)  # ungraded
+    invoke("run", eval_dir, "-g")  # already graded, up to date
+    write_run(eval_dir / "runs", exit_code=1)  # failed: never graded
+
+    grader_path = eval_dir / "graders" / "default.yaml"
+    lines = []
+    result = grade_pending(
+        eval_dir / "runs",
+        "default",
+        read_yaml(grader_path),
+        grader_path,
+        collecting_echo(lines),
+    )
+    assert result == {
+        "graded": 1,
+        "skipped": 1,
+        "stale": 0,
+        "failed_runs": 1,
+        "failures": 0,
+    }
+    assert len(lines) == 1
+    assert lines[0].endswith("pass")
+    # every non-failed run now carries a grade from this grader
+    graded = [
+        d
+        for d in run_dirs(eval_dir)
+        if (d / "grades" / "default" / "grade.yaml").exists()
+    ]
+    assert len(graded) == 2
+
+
+def test_grade_pending_counts_stale_without_regrading(invoke, make_eval):
+    from smevals.cli import grade_pending
+
+    eval_dir = make_eval()
+    invoke("run", eval_dir)
+    invoke("grade", eval_dir)
+    grader_path = eval_dir / "graders" / "default.yaml"
+    grader_path.write_text(
+        "name: default\nchecks:\n"
+        "  - checker: contains\n    value: hello\n"
+        "  - checker: contains\n    value: model\n"
+    )
+    lines = []
+    result = grade_pending(
+        eval_dir / "runs",
+        "default",
+        read_yaml(grader_path),
+        grader_path,
+        collecting_echo(lines),
+    )
+    assert result == {
+        "graded": 0,
+        "skipped": 0,
+        "stale": 1,
+        "failed_runs": 0,
+        "failures": 0,
+    }
+    assert lines == []
+
+
+def test_grade_pending_counts_failing_grades(invoke, make_eval):
+    from smevals.cli import grade_pending
+
+    eval_dir = make_eval(
+        graders={"default": {"checks": [{"checker": "contains", "value": "zzz"}]}}
+    )
+    invoke("run", eval_dir)
+    grader_path = eval_dir / "graders" / "default.yaml"
+    result = grade_pending(
+        eval_dir / "runs",
+        "default",
+        read_yaml(grader_path),
+        grader_path,
+        collecting_echo([]),
+    )
+    assert result["graded"] == 1
+    assert result["failures"] == 1

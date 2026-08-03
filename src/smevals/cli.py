@@ -213,17 +213,16 @@ def run(eval_path, models, config_name, tasks, repeat, grader_name, runs_dir):
     models = list(models) or [config["model"]]
     task_docs = [load_yaml(task_file) for task_file in task_files]
 
-    # New Runs each task/model pair still needs: exactly one without -n,
-    # otherwise the shortfall against the target sample size
-    remaining = {}
-    for task in task_docs:
-        for model in models:
-            if repeat is None:
-                remaining[(task["name"], model)] = 1
-                continue
-            existing = count_existing_runs(runs_root, task["name"], config_name, model)
-            remaining[(task["name"], model)] = max(0, repeat - existing)
-            if existing >= repeat:
+    remaining = compute_remaining(runs_root, task_docs, models, config_name, repeat)
+    if repeat is not None:
+        for task in task_docs:
+            for model in models:
+                # remaining == 0 is exactly existing >= repeat
+                if remaining[(task["name"], model)]:
+                    continue
+                existing = count_existing_runs(
+                    runs_root, task["name"], config_name, model
+                )
                 click.echo(
                     f"{task['name']} / {config_name} / {model}: "
                     f"already have {existing} run(s)"
@@ -259,6 +258,24 @@ def run(eval_path, models, config_name, tasks, repeat, grader_name, runs_dir):
         problems.append(f"{grade_failures} run(s) graded as fail")
     if problems:
         raise click.ClickException(", ".join(problems))
+
+
+def compute_remaining(runs_root, task_docs, models, config_name, repeat):
+    """New Runs each task/model pair still needs, as {(task_name, model): n}.
+
+    Exactly one without a target (repeat None), otherwise the shortfall
+    against the target sample size - failed Runs never count towards it
+    (see count_existing_runs).
+    """
+    remaining = {}
+    for task in task_docs:
+        for model in models:
+            if repeat is None:
+                remaining[(task["name"], model)] = 1
+                continue
+            existing = count_existing_runs(runs_root, task["name"], config_name, model)
+            remaining[(task["name"], model)] = max(0, repeat - existing)
+    return remaining
 
 
 def run_failed(run):
@@ -360,31 +377,14 @@ def grade(eval_path, grader_name, regrade, runs_dir):
 
     grader_path, grader = load_grader(eval_path, grader_name)
 
-    run_files = sorted(runs_root.rglob("run.yaml"))
-    if not run_files:
+    result = grade_pending(
+        runs_root, grader_name, grader, grader_path, click.echo, regrade=regrade
+    )
+    graded, skipped, stale = result["graded"], result["skipped"], result["stale"]
+    failed_runs, failures = result["failed_runs"], result["failures"]
+    # Every run.yaml lands in exactly one counter, so all-zero means none
+    if not (graded or skipped or stale or failed_runs):
         raise click.ClickException(f"No runs found in {runs_root}")
-
-    graded = skipped = stale = failures = failed_runs = 0
-    for run_file in run_files:
-        run_dir = run_file.parent
-        # A failed Run is a harness error, not evidence - never grade it
-        if run_failed(load_yaml(run_file)):
-            failed_runs += 1
-            continue
-        grade_dir = run_dir / "grades" / grader_name
-        if (grade_dir / "grade.yaml").exists() and not regrade:
-            if grade_matches_grader(grade_dir, grader):
-                skipped += 1
-            else:
-                stale += 1
-            continue
-        click.echo(f"{run_dir.relative_to(runs_root)} ... ", nl=False)
-        record = grade_run(run_dir, grade_dir, grader, grader_path)
-        graded += 1
-        failures += record["outcome"] != "pass"
-        score = record["score"]
-        score_display = "" if score is None else f" score={score}"
-        click.echo(f"{record['outcome']}{score_display}")
 
     if skipped:
         click.echo(f"Skipped {skipped} up-to-date grade(s)")
@@ -397,6 +397,47 @@ def grade(eval_path, grader_name, regrade, runs_dir):
         )
     if failures:
         raise click.ClickException(f"{failures} of {graded} run(s) graded as fail")
+
+
+def grade_pending(runs_root, grader_name, grader, grader_path, echo, regrade=False):
+    """Grade every not-yet-graded Run under runs_root with one Grader,
+    echoing one line per new Grade, returning
+    {graded, skipped, stale, failed_runs, failures}.
+
+    Skips failed Runs (harness errors, never evidence) and up-to-date
+    Grades; counts Grades from an older grader spec as stale without
+    touching them unless regrade is set. echo follows click.echo's
+    (message, nl=) contract - the CLI passes click.echo, the studio a
+    log-collecting callable.
+    """
+    graded = skipped = stale = failures = failed_runs = 0
+    for run_file in sorted(runs_root.rglob("run.yaml")):
+        run_dir = run_file.parent
+        # A failed Run is a harness error, not evidence - never grade it
+        if run_failed(load_yaml(run_file)):
+            failed_runs += 1
+            continue
+        grade_dir = run_dir / "grades" / grader_name
+        if (grade_dir / "grade.yaml").exists() and not regrade:
+            if grade_matches_grader(grade_dir, grader):
+                skipped += 1
+            else:
+                stale += 1
+            continue
+        echo(f"{run_dir.relative_to(runs_root)} ... ", nl=False)
+        record = grade_run(run_dir, grade_dir, grader, grader_path)
+        graded += 1
+        failures += record["outcome"] != "pass"
+        score = record["score"]
+        score_display = "" if score is None else f" score={score}"
+        echo(f"{record['outcome']}{score_display}")
+    return {
+        "graded": graded,
+        "skipped": skipped,
+        "stale": stale,
+        "failed_runs": failed_runs,
+        "failures": failures,
+    }
 
 
 def grade_matches_grader(grade_dir, grader):

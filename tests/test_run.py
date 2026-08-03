@@ -3,7 +3,8 @@
 from datetime import datetime, timezone
 
 import smevals.cli
-from conftest import read_yaml, run_dirs
+from conftest import read_yaml, run_dirs, write_run
+from smevals.cli import compute_remaining
 
 
 def test_run_records_output_and_run_yaml(invoke, make_eval):
@@ -244,3 +245,37 @@ def test_repeat_must_be_at_least_one(invoke, make_eval):
     eval_dir = make_eval()
     result = invoke("run", eval_dir, "-n", "0", expect_exit=2)
     assert "Invalid value" in result.output
+
+
+# --- compute_remaining: the shortfall logic `run` delegates to ------------
+
+
+def test_compute_remaining_without_target_is_one_per_pair(tmp_path):
+    task_docs = [{"name": "aa"}, {"name": "bb"}]
+    remaining = compute_remaining(tmp_path, task_docs, ["m-1", "m-2"], "default", None)
+    assert remaining == {
+        ("aa", "m-1"): 1,
+        ("aa", "m-2"): 1,
+        ("bb", "m-1"): 1,
+        ("bb", "m-2"): 1,
+    }
+
+
+def test_compute_remaining_counts_only_successful_runs(tmp_path):
+    write_run(tmp_path, task="aa", model="m-1")
+    write_run(tmp_path, task="aa", model="m-1", exit_code=1)
+    remaining = compute_remaining(tmp_path, [{"name": "aa"}], ["m-1"], "default", 3)
+    assert remaining == {("aa", "m-1"): 2}
+
+
+def test_compute_remaining_met_or_exceeded_target_is_zero(tmp_path):
+    for _ in range(3):
+        write_run(tmp_path, task="aa", model="m-1")
+    remaining = compute_remaining(tmp_path, [{"name": "aa"}], ["m-1"], "default", 2)
+    assert remaining == {("aa", "m-1"): 0}
+
+
+def test_compute_remaining_is_per_config(tmp_path):
+    write_run(tmp_path, task="aa", model="m-1", config="other")
+    remaining = compute_remaining(tmp_path, [{"name": "aa"}], ["m-1"], "default", 2)
+    assert remaining == {("aa", "m-1"): 2}
