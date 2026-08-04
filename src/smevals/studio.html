@@ -1564,6 +1564,27 @@ const emptyShelfHtml = () => `
     <div id="empty-form-slot"></div>
   </div>`;
 
+// Poll-tick refresh: patch each card's results strip + last-run dot in
+// place rather than a full renderShelf() - a full grid rebuild every ~3s
+// during a sweep visibly flickered the whole shelf. Falls back to a full
+// render if the eval set itself changed (a card added/removed elsewhere).
+async function refreshShelfInPlace() {
+  const evals = await loadEvals(true);
+  const cards = document.querySelectorAll(".shelf-grid > a.card");
+  if (cards.length !== evals.length) return renderShelf();
+  for (const e of evals) {
+    const card = document.querySelector(`a.card[href="#/eval/${enc(e.slug)}"]`);
+    if (!card) return renderShelf();
+    const results = card.querySelector(".card-results");
+    if (results) results.outerHTML = resultsStripHtml(e);
+    const lastrun = card.querySelector(".lastrun");
+    if (lastrun) lastrun.innerHTML = e.last_run_iso
+      ? `<span class="dot${Date.now() - new Date(e.last_run_iso) < 86400000
+          ? " fresh" : ""}"></span>${esc(ago(e.last_run_iso))}`
+      : `<span class="dot never"></span>never run`;
+  }
+}
+
 async function renderShelf() {
   let evals;
   try {
@@ -2750,9 +2771,23 @@ function bindForm(wb, buf, body) {
       return;
     }
     if (!el.dataset || el.dataset.kp === undefined) return;
-    const result = pure.applyEdit(buf.text, fieldOp(el));
+    const op = fieldOp(el);
+    const result = pure.applyEdit(buf.text, op);
     if (result.ok) {
       buf.text = result.text;
+      // A freshly-added extra/check field's own label carries an env tag
+      // that depends on its value's scalar-ness - keep it live too, not
+      // just the add-key preview, so it never lags a keystroke behind.
+      const label = el.closest(".ff")?.querySelector(".ff-key");
+      if (label) {
+        const kp = el.dataset.kp;
+        const k = kp.slice(kp.lastIndexOf(".") + 1);
+        const prefix = kp.startsWith("checks.") ? "SMEVALS_CHECK_"
+          : pure.docKind(buf.path) === "task" ? "SMEVALS_TASK_" : null;
+        const value = op.op === "del" ? null : op.value;
+        if (prefix) label.innerHTML =
+          `${esc(k)}${envTagHtml(pure.scalarEnvName(prefix, k, value))}`;
+      }
       refreshChrome(wb, buf);
     }
   });
@@ -3911,6 +3946,10 @@ function metricRowsHtml(metrics) {
 
 function metricBlocksHtml(wb, groups) {
   if (!groups.length) return `<div class="lb-empty">No metrics recorded.</div>`;
+  // model/config land here raw by design, not pre-escaped like most call
+  // sites in this file - foldHtml esc()s both the label and the fold key
+  // internally (see foldHtml above), so this stays safe under a hostile
+  // model name without a second esc() here to go stale or double-escape.
   return groups.map(g => foldHtml(
     wb, `results:${wb.resultsGrader}:${g.config}:${g.model}`,
     `${g.model} (${g.config})`,
@@ -4702,7 +4741,7 @@ async function refreshVisibleResults() {
       await refreshResultsMatrix();
     } else if (!state.wb && document.querySelector(".shelf-grid")
         && !document.querySelector("form.new-eval")) {
-      await renderShelf();
+      await refreshShelfInPlace();
     }
   } finally {
     pollTickBusy = false;

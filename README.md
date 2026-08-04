@@ -291,6 +291,8 @@ smevals studio [DIR] [-p PORT]
 
 A local, read-write authoring environment: a shelf of Evals, a workbench with schema-aware form/raw editors and live validation for Tasks, Configs, and Graders, and a bench to run a single Task or dry-run a Grader edit against an existing Run - unsaved edits included, nothing written under `runs/` until you commit to it. DIR defaults to the current directory (Suite semantics identical to `serve`); default port 7002. Binds `127.0.0.1` only - it writes files and executes Runners and Checkers, so never expose it beyond your machine. It also prints its URL with a random `?k=` token that every request must carry, since a loopback bind alone doesn't stop a hostile web page open in the same browser from reaching it.
 
+Each Eval's workbench also carries a **Results** tab - the same leaderboard, tag shares, and per-model metrics `smevals report` prints, live and click-through to the runs behind any score - plus a shelf-wide **Results** view: a models × evals matrix with the best score per eval highlighted and under-sampled cells marked. A top-level **Sweeps** view composes and runs a full evals × models × n matrix from the browser: deterministic Graders grade inline as each Run lands, judge-pattern Graders (any check with a `model` key) defer to one pass at the end so the judge model loads once, and local LM Studio models are detected via `lms ls`. One sweep runs at a time; restarting the same composition executes only the shortfall, and both Results views re-read live while it runs. For a quick look at results, these supersede running `smevals report` by hand - the command itself remains for headless and scripted use.
+
 ```
 smevals docs
 ```
