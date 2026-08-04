@@ -517,7 +517,11 @@ body.wb header { padding-block: var(--sp-5) var(--sp-4); }
 }
 .ff { margin-bottom: var(--sp-4); }
 .ff > label, .ff-key {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--sp-3);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   letter-spacing: 0.08em;
@@ -526,6 +530,10 @@ body.wb header { padding-block: var(--sp-5) var(--sp-4); }
   margin-bottom: var(--sp-1);
 }
 .ff-key { text-transform: none; letter-spacing: 0.02em; color: var(--text-2); }
+/* Quiet metadata, not a second value display: the env var name a field's
+   own label carries inline, pinned to the row's far edge. */
+.ff-env { font-weight: 400; color: var(--text-3); text-transform: none; letter-spacing: 0.02em; }
+.ff-env::before { content: "→ "; }
 .ff input, .ff textarea, .ff select { width: 100%; }
 .ff input.mono, .ff textarea { font-family: var(--font-mono); font-size: var(--fs-sm); }
 .ff-help { font-size: var(--fs-xs); color: var(--text-3); margin-top: var(--sp-1); }
@@ -552,6 +560,19 @@ body.wb header { padding-block: var(--sp-5) var(--sp-4); }
 .btn-del:hover { color: var(--fail); }
 .add-key { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-2); }
 .add-key input { flex: 0 1 220px; font-family: var(--font-mono); font-size: var(--fs-sm); }
+/* Previews the key being typed as the env var it will become, before the
+   field exists on disk - empty and invisible until there's a key to show. */
+.add-key-env {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 select {
   font: inherit;
   font-size: var(--fs-sm);
@@ -2006,45 +2027,58 @@ const pure = (() => {
   const slugifyModel = s =>
     String(s).replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 
-  const envKey = k =>
-    "SMEVALS_TASK_" + String(k).replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+  // Env var name for a scalar mapping entry, mirroring cli.scalar_env_vars
+  // exactly: runs of non-alnum characters collapse to one underscore, then
+  // uppercase - e.g. ("SMEVALS_TASK_", "weird key!") -> "SMEVALS_TASK_WEIRD_KEY_".
+  const scalarEnvKey = (prefix, k) =>
+    prefix + String(k).replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
 
-  // The exact environment cli.execute_run builds for the Runner subprocess,
-  // derived from the task doc's current text. opts: {config, model}.
+  // Every scalar entry of doc as {envVarName: str(value)}, exactly what
+  // cli.scalar_env_vars would build for the same mapping: non-scalar values
+  // (lists, maps) are silently skipped, never guessed at.
+  function scalarEnvVars(prefix, doc, floats = {}) {
+    const out = {};
+    for (const [k, v] of Object.entries(doc || {})) {
+      if (!isScalar(v)) continue;
+      // Python's str() keeps float-ness ("1.0"); JS numbers do not, so
+      // integral float-spelled scalars carry a parse-time flag
+      out[scalarEnvKey(prefix, k)] =
+        typeof v === "number" && floats[k] ? v.toFixed(1) : pyStr(v);
+    }
+    return out;
+  }
+
+  // The one env var name a single field's current value produces, or null
+  // when the value isn't scalar - the Runner/checker never sees it as one.
+  // What the task and check forms annotate each field with, live.
+  function scalarEnvName(prefix, key, value) {
+    return isScalar(value) ? scalarEnvKey(prefix, key) : null;
+  }
+
+  // What the task form's inline annotations can't show because it isn't a
+  // task field: the model "Run this task" resolves to, and where the run
+  // would land. opts: {config, model}.
   function envMirror(text, opts = {}) {
     const parsed = yamlParse(text);
     if (!parsed.ok) return { ok: false, error: parsed.error, line: parsed.line };
     const task = (parsed.doc && typeof parsed.doc === "object"
                   && !Array.isArray(parsed.doc)) ? parsed.doc : {};
-    // Python's str() keeps float-ness ("1.0"); JS numbers do not, so
-    // integral float-spelled scalars carry a parse-time flag
     const floats = parsed.floats || {};
     const disp = (v, key) =>
       (typeof v === "number" && floats[key] ? v.toFixed(1) : pyStr(v));
     const name = isScalar(task.name) ? disp(task.name, "name") : "";
-    const vars = [{ name: "SMEVALS_TASK", value: name, missing: !name }];
-    if ("prompt" in task) {
-      vars.push({
-        name: "SMEVALS_PROMPT",
-        value: isScalar(task.prompt) ? disp(task.prompt, "prompt") : "",
-        missing: !isScalar(task.prompt),
-      });
-    }
-    vars.push({
-      name: "SMEVALS_MODEL",
-      value: opts.model || "",
-      missing: !opts.model,
-    });
-    vars.push({
-      name: "SMEVALS_RUN_DIR",
-      value: `runs/${name || "<task>"}/${opts.config || "<config>"}/`
-        + `${opts.model ? slugifyModel(opts.model) : "<model>"}/<timestamp>`,
-      synthetic: true,
-    });
-    for (const [k, v] of Object.entries(task)) {
-      if (isScalar(v)) vars.push({ name: envKey(k), value: disp(v, k) });
-    }
-    return { ok: true, vars };
+    return {
+      ok: true,
+      vars: [
+        { name: "SMEVALS_MODEL", value: opts.model || "", missing: !opts.model },
+        {
+          name: "SMEVALS_RUN_DIR",
+          value: `runs/${name || "<task>"}/${opts.config || "<config>"}/`
+            + `${opts.model ? slugifyModel(opts.model) : "<model>"}/<timestamp>`,
+          synthetic: true,
+        },
+      ],
+    };
   }
 
   // Normalize rel against fromDir without escaping the eval root
@@ -2115,6 +2149,7 @@ const pure = (() => {
   return {
     BUILTIN_CHECKERS, parsePlain, yamlParse, yamlEmit, getAt, applyEdit,
     envMirror, pipeline, resolveRel, docKind,
+    scalarEnvKey, scalarEnvVars, scalarEnvName,
   };
 })();
 if (typeof module !== "undefined") module.exports = pure;
@@ -2571,11 +2606,12 @@ function checksEditor(wb, buf, checks, probs) {
             `<div class="ff-prob hard">${esc(p.problem)}</div>`).join("")}
           ${rows.map(([k, v]) => {
             const ed = valueEditor(`checks.${i}.${k}`, v, "scalar", []);
+            const envTag = envTagHtml(pure.scalarEnvName("SMEVALS_CHECK_", k, v));
             return `
               <div class="ff">
                 <div class="ff-row">
                   <div class="ff-val">
-                    <label class="ff-key" for="${ed.id}">${esc(k)}</label>
+                    <label class="ff-key" for="${ed.id}">${esc(k)}${envTag}</label>
                     ${ed.html}
                   </div>
                   <button type="button" class="btn-del" data-act="delkey"
@@ -2587,6 +2623,7 @@ function checksEditor(wb, buf, checks, probs) {
             <div class="add-key">
               <input placeholder="add a key…" data-newkey="checks.${i}"
                      spellcheck="false" autocomplete="off" aria-label="New key name">
+              <span class="add-key-env" data-newkey-env=""></span>
               <button type="button" class="btn btn-sm btn-ghost" data-act="addkey"
                       data-parent="checks.${i}">Add</button>
             </div>` : ""}
@@ -2598,6 +2635,17 @@ function checksEditor(wb, buf, checks, probs) {
     <button type="button" class="btn btn-sm btn-ghost" data-act="addcheck">
       + Add check</button>`;
 }
+
+// A task's fixed fields don't need the live scalar-only check extras and
+// check config get - name and prompt are always plain strings, so the
+// Runner env vars they become are a fact about the schema, not a live
+// per-value derivation.
+const TASK_FIELD_ENV = {
+  name: "SMEVALS_TASK, SMEVALS_TASK_NAME",
+  prompt: "SMEVALS_PROMPT",
+};
+
+const envTagHtml = name => name ? ` <span class="ff-env">${esc(name)}</span>` : "";
 
 function renderForm(wb, buf, body) {
   const kind = pure.docKind(buf.path);
@@ -2624,9 +2672,10 @@ function renderForm(wb, buf, body) {
     }
     const mode = { str: "scalar", path: "scalar", number: "number", text: "text" }[field.kind] || "scalar";
     const ed = valueEditor(field.key, value === undefined ? null : value, mode, fieldProbs);
+    const envTag = kind === "task" ? envTagHtml(TASK_FIELD_ENV[field.key]) : "";
     return `
       <div class="ff">
-        <label for="${ed.id}">${esc(field.label)}${field.required ? " *" : ""}</label>
+        <label for="${ed.id}">${esc(field.label)}${field.required ? " *" : ""}${envTag}</label>
         ${ed.html}
         ${ed.problems}
         <div class="ff-help">${esc(field.help)}</div>
@@ -2637,11 +2686,13 @@ function renderForm(wb, buf, body) {
     .filter(([k]) => !schemaTop.has(k))
     .map(([k, v]) => {
       const ed = valueEditor(k, v, "scalar", probs.filter(p => p.path === k));
+      const envTag = kind === "task"
+        ? envTagHtml(pure.scalarEnvName("SMEVALS_TASK_", k, v)) : "";
       return `
         <div class="ff">
           <div class="ff-row">
             <div class="ff-val">
-              <label class="ff-key" for="${ed.id}">${esc(k)}</label>
+              <label class="ff-key" for="${ed.id}">${esc(k)}${envTag}</label>
               ${ed.html}
               ${ed.problems}
             </div>
@@ -2662,12 +2713,10 @@ function renderForm(wb, buf, body) {
       <div class="add-key">
         <input placeholder="add any key…" data-newkey="" spellcheck="false"
                autocomplete="off" aria-label="New key name">
+        ${kind === "task" ? `<span class="add-key-env" data-newkey-env=""></span>` : ""}
         <button type="button" class="btn btn-sm btn-ghost" data-act="addkey"
                 data-parent="">Add</button>
       </div>
-      ${kind === "task" ? `
-        <div class="ff-help">Every scalar key here reaches the Runner as
-          SMEVALS_TASK_&lt;KEY&gt; — see the mirror on the right.</div>` : ""}
     </div>`;
   bindForm(wb, buf, body);
 }
@@ -2689,6 +2738,15 @@ function fieldOp(el) {
 function bindForm(wb, buf, body) {
   body.addEventListener("input", event => {
     const el = event.target;
+    if (el.dataset && el.dataset.newkey !== undefined) {
+      const out = el.parentElement.querySelector("[data-newkey-env]");
+      if (!out) return;
+      const key = el.value.trim();
+      const prefix = el.dataset.newkey.startsWith("checks.")
+        ? "SMEVALS_CHECK_" : "SMEVALS_TASK_";
+      out.textContent = key ? `→ ${pure.scalarEnvKey(prefix, key)}` : "";
+      return;
+    }
     if (!el.dataset || el.dataset.kp === undefined) return;
     const result = pure.applyEdit(buf.text, fieldOp(el));
     if (result.ok) {
@@ -2941,8 +2999,9 @@ function renderContext(wb) {
         </div>`).join("")}
     </div>
     <div class="ctx-note" style="margin-top: var(--sp-3)">
-      <p>Open a task to see these filled in live, or a grader to see its
-         check pipeline.</p>
+      <p>Open a task: its own fields show their env var names inline, and
+         this panel adds the model and run directory. Open a grader to see
+         its check pipeline instead.</p>
     </div>`;
 }
 
@@ -2969,8 +3028,8 @@ function renderTaskMirror(wb, buf, box) {
   const { model, hint } = benchModel(wb);
   const mirror = pure.envMirror(buf.text, { config: wb.mirrorConfig, model });
   box.innerHTML = `
-    <p class="ctx-eyebrow">What the Runner receives</p>
-    <p class="ctx-sub">live process environment · follows your edits</p>
+    <p class="ctx-eyebrow">Model &amp; run directory</p>
+    <p class="ctx-sub">not on the task itself · set by the picker below</p>
     <div class="env-block">
       ${mirror.ok ? mirror.vars.map(v => `
         <div class="env-var" data-env="${esc(v.name)}">
@@ -2985,8 +3044,9 @@ function renderTaskMirror(wb, buf, box) {
     </div>
     <div class="ctx-note" style="margin-top: var(--sp-3)">
       <p>This is the exact environment <code>smevals run</code> hands your
-         Runner subprocess. Add any scalar key to the task and it appears
-         here as <code>SMEVALS_TASK_&lt;KEY&gt;</code>.</p>
+         Runner subprocess — the task's own fields carry their env vars
+         inline, to the left; every other scalar key becomes
+         <code>SMEVALS_TASK_&lt;KEY&gt;</code>.</p>
     </div>
     ${benchRunHtml(wb, buf)}`;
   bindBenchRun(wb, buf, box);

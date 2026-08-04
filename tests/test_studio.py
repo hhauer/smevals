@@ -1412,7 +1412,7 @@ def corpus_report():
 @requires_node
 def test_studio_pure_corpus_no_silent_divergence_from_pyyaml(corpus_report):
     rows = corpus_report["cases"]
-    assert len(rows) == 54
+    assert len(rows) == 56
     failures = []
     for row in rows:
         name = row["name"]
@@ -1462,18 +1462,29 @@ def test_studio_pure_corpus_saves_preserve_untouched_fields(corpus_report):
 
 
 @requires_node
-def test_studio_pure_env_mirror_matches_python_str(corpus_report):
-    # Finding: the env mirror must display what Python would receive -
-    # str() of each scalar, including "1.0" for float-typed values and
-    # True/False capitalization for bools.
-    probe = corpus_report["envProbe"]
-    assert probe["ok"], probe
-    task = yaml.safe_load(probe["doc"])
-    expected = scalar_env_vars("SMEVALS_TASK_", task)
-    mirrored = {k: v for k, v in probe["vars"].items() if k.startswith("SMEVALS_TASK_")}
-    assert mirrored == expected
-    assert probe["vars"]["SMEVALS_TASK"] == str(task["name"])
-    assert probe["vars"]["SMEVALS_PROMPT"] == str(task["prompt"])
+def test_studio_pure_corpus_scalar_env_vars_match_python(corpus_report):
+    # The task and check forms annotate each field with the env var its
+    # current value becomes; that derivation (key transform + scalar-only
+    # filter) must match cli.scalar_env_vars exactly - across the whole
+    # corpus, so non-alnum/unicode keys, float/bool formatting, and
+    # non-scalar siblings (lists, maps) that must NOT be annotated all get
+    # checked, not just one hand-picked doc.
+    failures = []
+    for row in corpus_report["cases"]:
+        if not row.get("jsOk") or "scalarEnvVars" not in row:
+            continue
+        try:
+            py_doc = yaml.safe_load(row["yaml"])
+        except yaml.YAMLError:
+            continue
+        if not isinstance(py_doc, dict):
+            continue
+        expected = scalar_env_vars("SMEVALS_TASK_", py_doc)
+        if row["scalarEnvVars"] != expected:
+            failures.append(
+                f"{row['name']}: js={row['scalarEnvVars']!r} py={expected!r}"
+            )
+    assert not failures, "\n".join(failures)
 
 
 # --- CLI ---------------------------------------------------------------------

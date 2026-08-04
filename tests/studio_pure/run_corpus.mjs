@@ -1,6 +1,6 @@
 // Run the YAML attack corpus (cases.json) through studio.html's real pure
-// block (yamlParse/yamlEmit/applyEdit/envMirror), extracted at run time from
-// the STUDIO_PURE markers - never a duplicated copy of the code.
+// block (yamlParse/yamlEmit/applyEdit/scalarEnvVars), extracted at run time
+// from the STUDIO_PURE markers - never a duplicated copy of the code.
 //
 // Prints a JSON report to stdout for tests/test_studio.py to classify
 // against real PyYAML: every case must parse to PyYAML's value (MATCH) or
@@ -35,6 +35,13 @@ const rows = cases.map(({ name, yaml }) => {
   }
   row.jsOk = true;
   row.jsDoc = p.doc;
+  // Every scalar entry as an env var, mirroring cli.scalar_env_vars - the
+  // corpus's non-alnum/unicode keys and non-scalar siblings (lists, maps)
+  // exercise the same key-derivation and scalar-only rules the task and
+  // check forms rely on for their inline annotations.
+  if (p.doc && typeof p.doc === "object" && !Array.isArray(p.doc)) {
+    row.scalarEnvVars = pure.scalarEnvVars("SMEVALS_TASK_", p.doc, p.floats);
+  }
   const emitted = pure.yamlEmit(p.doc);
   row.emitted = emitted;
   const p2 = pure.yamlParse(emitted);
@@ -52,25 +59,4 @@ const rows = cases.map(({ name, yaml }) => {
   return row;
 });
 
-// The env mirror must display exactly what Python's str() would hand the
-// Runner, including float-typed scalars ("1.0", not "1").
-const envDoc = [
-  "name: probe",
-  "prompt: hello",
-  "threshold: 1.0",
-  "ratio: 0.75",
-  "count: 3",
-  "strict: true",
-  "loose: false",
-  "label: plain words",
-].join("\n") + "\n";
-const mirror = pure.envMirror(envDoc, { config: "default", model: "m" });
-const envProbe = {
-  doc: envDoc,
-  ok: mirror.ok,
-  vars: mirror.ok
-    ? Object.fromEntries(mirror.vars.map(v => [v.name, v.value]))
-    : { error: mirror.error },
-};
-
-process.stdout.write(JSON.stringify({ cases: rows, envProbe }));
+process.stdout.write(JSON.stringify({ cases: rows }));
