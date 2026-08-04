@@ -4181,8 +4181,11 @@ function composeHtml(sw) {
   const c = sw.compose;
   const evals = state.evals || [];
   const local = new Set(sw.modelsDoc?.local || []);
+  // Local models list first: a local sweep is what this form is usually
+  // composing, and 50+ hosted suggestions would otherwise bury them
   const options =
-    [...new Set([...(sw.modelsDoc?.models || []), ...c.custom, ...c.models])];
+    [...new Set([...(sw.modelsDoc?.models || []), ...c.custom, ...c.models])]
+      .sort((a, b) => (local.has(b) - local.has(a)) || a.localeCompare(b));
   return `
     <p class="ctx-eyebrow">Compose a sweep</p>
     <p class="ctx-sub">evals × models × n · one sweep at a time</p>
