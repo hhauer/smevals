@@ -16,6 +16,7 @@ import socket
 import subprocess
 import threading
 import time
+import urllib.parse
 from datetime import datetime
 
 import pytest
@@ -1897,7 +1898,7 @@ def test_sweep_plan_previews_shortfall_and_treatments(server):
     write_run(first / "runs", task="example", model="hosted-a")
 
     status, ctype, body = get(
-        "/api/sweep/plan?evals=first-eval&models=hosted-a,hosted-b&n=3"
+        "/api/sweep/plan?evals=first-eval&models=hosted-a&models=hosted-b&n=3"
     )
     assert status == 200
     assert ctype == "application/json"
@@ -1908,6 +1909,30 @@ def test_sweep_plan_previews_shortfall_and_treatments(server):
     }
     assert plan["graders"] == {"first-eval": {"default": "inline", "judge": "deferred"}}
     assert plan["n"] == 3
+
+
+def test_sweep_plan_keeps_comma_bearing_model_names_whole(server):
+    """One repeated query param per value (models=a&models=b): a free-text
+    model name containing literal commas must reach the plan as ONE model.
+    encodeURIComponent encodes an intended separator and a literal comma
+    identically, so a comma-splitting server can't tell them apart and
+    silently inflates the preview's run count - the injection a live
+    review caught (18 true runs shown as 30)."""
+    get, root, first, second = server
+    weird = "openrouter/vendor,size=27b,ctx=32k"
+    models = ["hosted-a", "hosted-b", weird]
+    query = "&".join(
+        ["evals=first-eval"]
+        + [f"models={urllib.parse.quote(m, safe='')}" for m in models]
+        + ["n=2"]
+    )
+    status, _, body = get(f"/api/sweep/plan?{query}")
+    assert status == 200
+    plan = json.loads(body)
+    assert plan["models"] == models
+    # 3 models x 1 eval = 3 cells; a comma-split would have shown 5
+    assert len(plan["cells"]) == 3
+    assert cell_key("first-eval", weird) in plan["cells"]
 
 
 def test_sweep_plan_defaults_to_every_eval_without_models(server):

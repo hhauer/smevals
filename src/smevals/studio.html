@@ -4052,7 +4052,11 @@ async function renderResultsMatrix() {
 // show it missing mid-sweep.
 
 const SWEEP_COMPOSE_KEY = "smevals-sweep-compose";
-const SWEEP_CELL_SEP = "\u0000"; // sweep.py's cell_key NUL separator
+// sweep.py's cell_key NUL separator. MUST stay this \u0000 escape,
+// never a pasted literal: the HTML tokenizer mangles a raw NUL byte
+// inside this inline <script> to U+FFFD, silently breaking every
+// cell lookup.
+const SWEEP_CELL_SEP = "\u0000";
 const SWEEP_TREATMENTS = ["inline", "deferred", "skip"];
 
 const sweepJobActive = job =>
@@ -4126,9 +4130,16 @@ async function fetchSweepPlan(sw) {
     renderComposeDerived(sw);
     return;
   }
+  // One repeated query param per value: enc() encodes a literal comma in
+  // a free-text model name and a would-be separator identically, so a
+  // joined CSV here would inflate the server's shortfall preview
+  const query = [
+    ...c.evals.map(s => `evals=${enc(s)}`),
+    ...c.models.map(m => `models=${enc(m)}`),
+    `n=${c.n}`,
+  ].join("&");
   try {
-    const plan = await api(`/api/sweep/plan?evals=${enc(c.evals.join(","))}` +
-      `&models=${enc(c.models.join(","))}&n=${c.n}`);
+    const plan = await api(`/api/sweep/plan?${query}`);
     if (seq !== sweepPlanSeq) return;
     sw.plan = plan;
     sw.planErr = null;

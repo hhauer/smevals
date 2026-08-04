@@ -48,7 +48,11 @@ SWEEP_CONFIG = "default"
 
 TREATMENTS = ("inline", "deferred", "skip")
 
-# Cell keys join slug and model with NUL - the one byte neither may contain
+# Cell keys join slug and model with NUL - the one byte neither may contain.
+# studio.html's SWEEP_CELL_SEP mirrors this and MUST spell it as the
+# "\u0000" JS escape: a literal NUL byte inside the inline <script> is
+# mangled to U+FFFD by the HTML tokenizer, silently breaking every
+# cell lookup.
 CELL_SEP = "\x00"
 
 # How many log lines a sweep job retains - a tail, per the job shape

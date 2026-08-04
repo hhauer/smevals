@@ -807,20 +807,22 @@ def run_studio(root, port, token):
 
         def handle_sweep_plan(self, query):
             """The compose-form preview: per-cell shortfall plus default
-            grader treatments, for ?evals=&models=&n= (comma-separated,
-            evals defaulting to all; models may be empty while the form
-            is still being filled in)."""
+            grader treatments, for repeated query params - one value per
+            param (?evals=a&evals=b&models=x&n=). evals defaults to all;
+            models may be empty while the form is still being filled in.
+            Values are never comma-split: percent-encoding makes a
+            free-text model name containing a literal comma
+            indistinguishable from an intended separator, so a CSV
+            reading here would silently inflate the shortfall preview.
+            """
             params = urllib.parse.parse_qs(query)
 
-            def csv(name):
-                values = []
-                for chunk in params.get(name, []):
-                    values += [v for v in chunk.split(",") if v]
-                return values
+            def values(name):
+                return [v for v in params.get(name, []) if v]
 
-            body = {"models": csv("models")}
-            if csv("evals"):
-                body["evals"] = csv("evals")
+            body = {"models": values("models")}
+            if values("evals"):
+                body["evals"] = values("evals")
             if params.get("n"):
                 try:
                     body["n"] = int(params["n"][0])
