@@ -1,0 +1,16 @@
+
+You have 9 models, taking up 220.49 GB of disk space.
+
+LLM                                   PARAMS      ARCH         SIZE        DEVICE            
+google/gemma-4-31b-qat (1 variant)    31B         gemma4       18.85 GB    Local             
+google/gemma-4-e4b (1 variant)        4B          gemma4       6.86 GB     Local             
+ornith-1.0-35b                        35B         qwen35moe    38.69 GB    Local             
+poolside/laguna-s-2.1 (1 variant)     256x4.5B    laguna       71.16 GB    Local             
+prism-ml/bonsai-27b (1 variant)       27B         qwen3_5      8.52 GB     Local             
+qwen/qwen3.6-27b (1 variant)          27B         qwen3_5      29.53 GB    Local     ✓ LOADED
+qwopus3.6-27b-fusion                  27B         qwen35       16.81 GB    Local             
+qwythos-27b-v1                        27B         qwen35       29.97 GB    Local             
+
+EMBEDDING                               PARAMS    ARCH          SIZE        DEVICE    
+text-embedding-nomic-embed-text-v1.5              Nomic BERT    84.11 MB    Local     
+

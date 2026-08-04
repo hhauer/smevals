@@ -8,6 +8,8 @@ invoke `lms` points PATH *and* HOME (lms_path falls back to
 this machine is never touched.
 """
 
+import pathlib
+
 import pytest
 
 from conftest import FAKE_LMS, lms_calls, python_script, write_executable, write_run
@@ -45,6 +47,34 @@ def test_lms_path_none_when_absent(isolated_lms_env):
 
 
 # --- lms_inventory --------------------------------------------------------
+
+# A VERBATIM capture of `lms ls` on the machine that runs the real local
+# sweeps - the parser's ground truth. Notable hazards it carries: single-
+# token section headers (LLM, EMBEDDING), " (N variant)" suffixes on
+# model ids, a "✓ LOADED" status column, and an embedding model that is
+# not a loadable chat model.
+REAL_LMS_LS = pathlib.Path(__file__).parent / "real-lms-ls.txt"
+
+
+def test_parse_lms_ls_against_real_capture():
+    inventory = sweep.parse_lms_ls(REAL_LMS_LS.read_text())
+    # Exactly the LLM-section rows, variant suffixes stripped - never the
+    # LLM/EMBEDDING header tokens, never the embedding model
+    assert inventory == {
+        "google/gemma-4-31b-qat",
+        "google/gemma-4-e4b",
+        "ornith-1.0-35b",
+        "poolside/laguna-s-2.1",
+        "prism-ml/bonsai-27b",
+        "qwen/qwen3.6-27b",
+        "qwopus3.6-27b-fusion",
+        "qwythos-27b-v1",
+    }
+
+
+def test_parse_lms_ls_strips_variant_plural_suffix():
+    text = "LLM        PARAMS    ARCH    SIZE\nmulti-model (3 variants)    27B    qwen3    16.00 GB\n"
+    assert sweep.parse_lms_ls(text) == {"multi-model"}
 
 
 def test_lms_inventory_scrapes_ls_output(isolated_lms_env):

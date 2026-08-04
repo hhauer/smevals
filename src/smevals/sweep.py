@@ -81,20 +81,38 @@ def lms_path():
 
 
 def parse_lms_ls(text):
-    """Best-effort scrape of `lms ls`'s human-oriented column output.
+    """Best-effort, section-aware scrape of `lms ls`'s human-oriented
+    column output, verified against a verbatim capture of the real tool
+    (tests/real-lms-ls.txt).
 
-    A model row is a multi-column line (columns separated by 2+ spaces)
-    whose first column is a single token - the model id. Headers ("LLMs
-    (Large Language Models)  PARAMS ...") and prose ("You have 2 models,
-    taking up ...") fail that shape and are skipped; a garbled listing
+    The listing is a summary line ("You have 9 models, ...") followed by
+    per-section tables whose header row's first column names the section:
+    LLM, then EMBEDDING. Only LLM-section rows are loadable chat models,
+    so rows are consumed strictly between the LLM header and the next
+    blank line or section header. A row's first column (columns separated
+    by 2+ spaces) is the model id, optionally suffixed " (N variant[s])",
+    which is stripped. Anything unexpected is skipped - a garbled listing
     just means a smaller inventory, never a hard failure.
     """
     models = set()
+    in_llm_section = False
     for line in text.splitlines():
-        columns = [c for c in re.split(r"\s{2,}", line.strip()) if c]
-        if len(columns) < 2 or " " in columns[0]:
+        stripped = line.strip()
+        if not stripped:
+            in_llm_section = False
             continue
-        models.add(columns[0])
+        columns = [c for c in re.split(r"\s{2,}", stripped) if c]
+        if columns[0] == "LLM":
+            in_llm_section = True
+            continue
+        if columns[0] == "EMBEDDING":
+            in_llm_section = False
+            continue
+        if not in_llm_section or len(columns) < 2:
+            continue
+        model = re.sub(r"\s+\(\d+ variants?\)$", "", columns[0])
+        if model and " " not in model:
+            models.add(model)
     return models
 
 

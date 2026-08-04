@@ -24,10 +24,14 @@ printf '%s\\n' "${SMEVALS_PROMPT-<no prompt>}"
 """
 
 # A fake `lms` CLI for sweep tests: records every invocation's argv to
-# lms-argv.log beside itself, lists two local models on `ls` (in the real
-# tool's human-oriented column format - there is no machine-readable ls),
-# and fails `load` for the model named in FAKE_LMS_FAIL_LOAD. A real
-# executable honoring the observed CLI surface, never the real LM Studio.
+# lms-argv.log beside itself, lists two local LLMs on `ls`, and fails
+# `load` for the model named in FAKE_LMS_FAIL_LOAD. The `ls` output
+# mirrors the REAL tool's format verbatim-style (see the ground-truth
+# capture in tests/real-lms-ls.txt): a summary line, single-token LLM /
+# EMBEDDING section headers, " (N variant)" suffixes, DEVICE and
+# "✓ LOADED" columns, and an embedding model that must never be treated
+# as a loadable chat model. There is no machine-readable ls, so the
+# whole sweep suite exercises the parser against this real shape.
 FAKE_LMS = """\
 import json, os, pathlib, sys
 
@@ -35,11 +39,30 @@ here = pathlib.Path(__file__).resolve().parent
 with (here / "lms-argv.log").open("a") as f:
     f.write(json.dumps(sys.argv[1:]) + "\\n")
 if sys.argv[1:2] == ["ls"]:
-    print("You have 2 models, taking up 21.00 GB of disk space.")
     print("")
-    print("LLMs (Large Language Models)      PARAMS   ARCHITECTURE   SIZE")
-    print("local-alpha                       27B      qwen3          16.00 GB")
-    print("local-beta                        8B       llama          5.00 GB")
+    print("You have 3 models, taking up 21.08 GB of disk space.")
+    print("")
+    print(
+        "LLM                                   PARAMS      ARCH         "
+        "SIZE        DEVICE            "
+    )
+    print(
+        "local-alpha (1 variant)               27B         qwen3        "
+        "16.00 GB    Local     \\u2713 LOADED"
+    )
+    print(
+        "local-beta                            8B          llama        "
+        "5.00 GB     Local             "
+    )
+    print("")
+    print(
+        "EMBEDDING                               PARAMS    ARCH          "
+        "SIZE        DEVICE    "
+    )
+    print(
+        "fake-embedding-model                              Nomic BERT    "
+        "84.11 MB    Local"
+    )
 if sys.argv[1:2] == ["load"] and os.environ.get("FAKE_LMS_FAIL_LOAD") == sys.argv[2]:
     print("model not found", file=sys.stderr)
     sys.exit(1)
