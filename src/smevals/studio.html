@@ -1173,12 +1173,152 @@ table.matrix td.mcell { color: var(--text-2); }
 table.matrix td.empty { color: var(--text-3); }
 .matrix-mark { color: var(--warn); margin-left: 3px; cursor: help; }
 .matrix-foot { margin: var(--sp-3) var(--sp-4) 0; font-size: var(--fs-xs); color: var(--text-3); }
+
+/* ---- sweeps: compose form -------------------------------------------------
+   State colors stay within the app's token semantics: accent for active
+   work (loading/running/grading), pass/fail reserved for outcomes, and
+   neutral line colors for queued/stopped. State is never color alone -
+   every cell and chip carries its state as text too. */
+.sweep-compose { padding: var(--sp-4) var(--sp-5) var(--sp-5); margin-bottom: var(--sp-5); }
+.sw-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
+@media (max-width: 800px) { .sw-cols { grid-template-columns: 1fr; } }
+.sw-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--sp-1);
+}
+.sw-pick {
+  max-height: 230px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--sp-1);
+  background: var(--bg);
+}
+.sw-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px var(--sp-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.sw-item:hover { background: var(--surface-2); }
+.sw-item input { accent-color: var(--accent); flex: none; }
+.sw-item .sw-name { font-family: var(--font-mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.sw-item .chip-quiet { margin-left: auto; }
+.sw-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-4); }
+.sw-row input[type=number] { font-family: var(--font-mono); font-size: var(--fs-sm); width: 76px; }
+.sw-treat-row { display: flex; align-items: center; gap: var(--sp-2); padding: 3px 0; font-size: var(--fs-sm); }
+.sw-treat-eval { color: var(--text-2); flex: none; }
+.sw-treat-name { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text); overflow-wrap: anywhere; }
+.sw-treat-row select { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-xs); flex: none; }
+.sw-hint { font-size: var(--fs-xs); color: var(--text-3); }
+.sw-preview {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--accent-soft);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.sw-preview .sw-hint { margin-left: var(--sp-1); }
+
+/* ---- sweeps: live board --------------------------------------------------- */
+.sw-board-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.sw-board-head .sw-spec { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); }
+.sw-board-head .sw-cancel { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.chip-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.chip-state.accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.chip-state.pass { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, transparent); }
+.chip-state.fail { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, transparent); }
+table.sw-board th, table.sw-board td {
+  text-align: left;
+  border-bottom: none;
+  padding: 4px;
+}
+.sw-cell {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 5px 10px 6px;
+  min-width: 110px;
+  font-variant-numeric: tabular-nums;
+}
+.sw-cell .sw-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.sw-cell .sw-have { font-family: var(--font-mono); font-weight: 600; color: var(--text); }
+.sw-cell .sw-sub {
+  display: flex;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.sw-cell .sw-failn { color: var(--fail); }
+.sw-cell.st-active { border-left-color: var(--accent); }
+.sw-cell.st-active .sw-state { color: var(--accent); }
+.sw-cell.st-done { border-left-color: var(--pass); }
+.sw-cell.st-done .sw-state { color: var(--pass); }
+.sw-cell.st-failed { border-left-color: var(--fail); }
+.sw-cell.st-failed .sw-state { color: var(--fail); }
+.sw-cell.st-stopped { border-left-style: dashed; }
+.sw-current {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+.sw-current b { font-family: var(--font-mono); font-weight: 600; color: var(--text); }
+.sw-log { max-height: 260px; overflow-y: auto; }
+.sw-section-h {
+  margin: var(--sp-4) 0 var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.sw-def-row { display: flex; align-items: center; gap: var(--sp-2); padding: 3px 0; font-size: var(--fs-sm); }
+.sw-def-name { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text); overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
 <header>
   <a class="wordmark" href="#/">smevals<span class="studio">studio</span></a>
-  <nav class="header-nav"><a href="#/results">Results</a></nav>
+  <nav class="header-nav"><a href="#/results">Results</a><a href="#/sweep">Sweeps</a></nav>
   <span id="header-meta"></span>
 </header>
 <main id="view"></main>
@@ -1193,12 +1333,13 @@ const view = document.getElementById("view");
 // see renderWorkbench/route. Unsaved buffers and an in-flight job survive an
 // in-app trip to the shelf and back this way, instead of the shelf discarding
 // state.wb outright.
-// resultsMatrix: the global #/results cache; sweepActive starts false and
-// stays inert here - Task 4's sweep board flips it while a sweep job runs,
-// which is what turns the poll ticker below on.
+// resultsMatrix: the global #/results cache. sweepActive is true while a
+// sweep job is running (the sweep poll loop maintains it), which is what
+// turns the results poll ticker below on. sweeps holds the Sweeps
+// surface's state - see sweepsState().
 const state = {
   evals: null, models: null, wb: null, wbCache: new Map(),
-  resultsMatrix: null, sweepActive: false,
+  resultsMatrix: null, sweepActive: false, sweeps: null,
 };
 
 // --- studio key ------------------------------------------------------------
@@ -3899,17 +4040,582 @@ async function renderResultsMatrix() {
   document.getElementById("results-matrix-slot").innerHTML = matrixHtml(matrix, names);
 }
 
+// --- sweeps (#/sweep): compose form + live board -----------------------------
+//
+// One sweep at a time, server-side (POST /api/sweep -> a persistent job).
+// The compose form previews its size via GET /api/sweep/plan and persists
+// every change to localStorage, so a studio restart pre-fills it - and
+// smevals' top-up semantics make re-starting cheap: already-recorded runs
+// count, only the shortfall executes. The board renders ONLY from the
+// sweep job's cell state, never from results data: a deferred-judge model
+// has no grades until the final pass, so results-derived rendering would
+// show it missing mid-sweep.
+
+const SWEEP_COMPOSE_KEY = "smevals-sweep-compose";
+const SWEEP_CELL_SEP = "\u0000"; // sweep.py's cell_key NUL separator
+const SWEEP_TREATMENTS = ["inline", "deferred", "skip"];
+
+const sweepJobActive = job =>
+  !!job && (job.status === "queued" || job.status === "running");
+
+function sweepsState() {
+  if (!state.sweeps) {
+    state.sweeps = {
+      job: null,       // the active-or-most-recent sweep job, or null
+      compose: null,   // {evals, models, custom, n, graders} - localStorage-backed
+      modelsDoc: null, // /api/models: {models, local}
+      plan: null, planErr: null, err: null, posting: false,
+    };
+  }
+  return state.sweeps;
+}
+
+function savedCompose() {
+  try { return JSON.parse(localStorage.getItem(SWEEP_COMPOSE_KEY) || "null"); }
+  catch { return null; }
+}
+
+function saveCompose(sw) {
+  try { localStorage.setItem(SWEEP_COMPOSE_KEY, JSON.stringify(sw.compose)); }
+  catch { /* private mode etc - the form still works, it just won't survive */ }
+}
+
+// The compose form's inputs: the shelf listing (eval names) and the model
+// suggestions, plus the saved composition rehydrated against what exists now.
+async function ensureComposeInputs(sw) {
+  const [evals, modelsDoc] = await Promise.all([
+    loadEvals(),
+    sw.modelsDoc ? Promise.resolve(sw.modelsDoc) : api("/api/models"),
+  ]);
+  sw.modelsDoc = modelsDoc;
+  if (!sw.compose) {
+    const saved = savedCompose();
+    const slugs = evals.map(e => e.slug);
+    sw.compose = {
+      evals: Array.isArray(saved?.evals)
+        ? saved.evals.filter(s => slugs.includes(s)) : slugs,
+      models: Array.isArray(saved?.models)
+        ? saved.models.filter(m => typeof m === "string") : [],
+      custom: Array.isArray(saved?.custom)
+        ? saved.custom.filter(m => typeof m === "string") : [],
+      n: Number.isInteger(saved?.n) && saved.n >= 1 ? saved.n : 5,
+      graders: saved?.graders && typeof saved.graders === "object"
+        ? saved.graders : {},
+    };
+  }
+}
+
+// --- the plan preview (shortfall + default grader treatments) ---------------
+
+let sweepPlanSeq = 0;
+let sweepPlanTimer = null;
+
+function schedulePlan(sw) {
+  clearTimeout(sweepPlanTimer);
+  sweepPlanTimer = setTimeout(() => { fetchSweepPlan(sw); }, 300);
+}
+
+async function fetchSweepPlan(sw) {
+  const c = sw.compose;
+  const seq = ++sweepPlanSeq;
+  // The plan endpoint 400s on an empty eval list - don't ask until there
+  // is something to size (models may be empty: treatments still preview)
+  if (!c.evals.length || !Number.isInteger(c.n) || c.n < 1) {
+    sw.plan = null;
+    sw.planErr = null;
+    renderComposeDerived(sw);
+    return;
+  }
+  try {
+    const plan = await api(`/api/sweep/plan?evals=${enc(c.evals.join(","))}` +
+      `&models=${enc(c.models.join(","))}&n=${c.n}`);
+    if (seq !== sweepPlanSeq) return;
+    sw.plan = plan;
+    sw.planErr = null;
+  } catch (ex) {
+    if (seq !== sweepPlanSeq) return;
+    sw.plan = null;
+    sw.planErr = ex.message;
+  }
+  renderComposeDerived(sw);
+}
+
+// The treatment table shown (and POSTed): the plan's defaults (judge-
+// pattern graders arrive pre-set to deferred) with the author's saved
+// overrides on top; stale grader names in old saved state drop out here.
+function mergedTreatments(sw) {
+  const out = {};
+  for (const [slug, defaults] of Object.entries(sw.plan?.graders || {})) {
+    out[slug] = {};
+    for (const [name, treatment] of Object.entries(defaults)) {
+      const saved = sw.compose.graders?.[slug]?.[name];
+      out[slug][name] = SWEEP_TREATMENTS.includes(saved) ? saved : treatment;
+    }
+  }
+  return out;
+}
+
+const planShortfall = plan =>
+  Object.values(plan.cells || {}).reduce((a, c) => a + (c.remaining || 0), 0);
+
+// --- compose form -----------------------------------------------------------
+
+const evalDisplayName = slug =>
+  (state.evals || []).find(e => e.slug === slug)?.name || slug;
+
+const sweepIntroHtml = () => `
+  <div class="card empty-shelf" style="margin: 0 0 var(--sp-5)">
+    <h2>Run the whole matrix</h2>
+    <p>A sweep runs every eval × model pair you pick up to a target of n
+       runs per task, grading as it goes: deterministic graders inline
+       after each run, judge graders in one deferred pass at the end so
+       their judge model loads once. Models in your LM Studio inventory
+       are loaded locally, one at a time; anything else is treated as
+       hosted.</p>
+    <p>Sweeps run one at a time, right here in the studio, and results
+       land live as they record. The CLI (<code>smevals run</code> and
+       your sweep scripts) remains for headless use.</p>
+  </div>`;
+
+function composeHtml(sw) {
+  const c = sw.compose;
+  const evals = state.evals || [];
+  const local = new Set(sw.modelsDoc?.local || []);
+  const options =
+    [...new Set([...(sw.modelsDoc?.models || []), ...c.custom, ...c.models])];
+  return `
+    <p class="ctx-eyebrow">Compose a sweep</p>
+    <p class="ctx-sub">evals × models × n · one sweep at a time</p>
+    <div class="sw-cols">
+      <div>
+        <div class="sw-label">Evals</div>
+        <div class="sw-pick" id="sw-evals">
+          ${evals.length ? evals.map(e => `
+            <label class="sw-item">
+              <input type="checkbox" data-eval="${esc(e.slug)}"
+                     ${c.evals.includes(e.slug) ? "checked" : ""}>
+              <span class="sw-name">${esc(e.name)}</span>
+            </label>`).join("")
+            : `<div class="tree-empty">no evals yet — create one on
+               <a href="#/">the shelf</a></div>`}
+        </div>
+      </div>
+      <div>
+        <div class="sw-label">Models</div>
+        <div class="sw-pick" id="sw-models">
+          ${options.length ? options.map(m => `
+            <label class="sw-item">
+              <input type="checkbox" data-model="${esc(m)}"
+                     ${c.models.includes(m) ? "checked" : ""}>
+              <span class="sw-name">${esc(m)}</span>
+              ${local.has(m)
+                ? `<span class="chip-quiet">local · LM Studio</span>` : ""}
+            </label>`).join("")
+            : `<div class="tree-empty">none suggested — add one below</div>`}
+        </div>
+        <div class="add-key">
+          <input id="sw-model-add" placeholder="add a model id…"
+                 spellcheck="false" autocomplete="off" aria-label="Add a model">
+          <button type="button" class="btn btn-sm btn-ghost"
+                  id="sw-model-add-go">Add</button>
+        </div>
+      </div>
+    </div>
+    <div class="sw-row">
+      <label class="sw-label" style="margin: 0" for="sw-n">
+        Target runs per task × model</label>
+      <input id="sw-n" type="number" min="1" step="1" inputmode="numeric"
+             value="${esc(String(c.n))}">
+    </div>
+    <div id="sw-treatments"></div>
+    <div id="sw-preview"></div>
+    <div class="bench-actions" style="margin-top: var(--sp-3)">
+      <button type="button" class="btn btn-primary" id="sw-start" disabled>
+        Start sweep</button>
+      <span class="sw-hint">already-recorded runs count — starting again only
+        runs the shortfall</span>
+    </div>
+    <div id="sw-err">${sw.err ? errorBox(sw.err) : ""}</div>`;
+}
+
+function treatmentsHtml(sw) {
+  if (sw.planErr) return errorBox(sw.planErr);
+  const treatments = mergedTreatments(sw);
+  const rows = Object.entries(treatments).flatMap(([slug, graders]) =>
+    Object.entries(graders).map(([name, treatment]) => `
+      <div class="sw-treat-row">
+        <span class="sw-treat-eval">${esc(evalDisplayName(slug))}</span>
+        <span class="sw-treat-name">${esc(name)}</span>
+        <select data-t-eval="${esc(slug)}" data-t-grader="${esc(name)}"
+                aria-label="Treatment for ${esc(slug)} / ${esc(name)}">
+          ${SWEEP_TREATMENTS.map(t => `
+            <option value="${t}" ${t === treatment ? "selected" : ""}>${t}</option>`).join("")}
+        </select>
+      </div>`));
+  if (!rows.length) return "";
+  return `
+    <div class="sw-label" style="margin-top: var(--sp-4)">Grader treatments</div>
+    <div class="sw-hint" style="margin-bottom: var(--sp-1)">inline grades
+      after every run; deferred graders run once at the end (judge graders
+      arrive pre-set to deferred, so their judge model loads once); skip
+      records nothing.</div>
+    ${rows.join("")}`;
+}
+
+function previewHtml(sw) {
+  const c = sw.compose;
+  if (!c.evals.length) return `<div class="sw-hint" style="margin-top: var(--sp-3)">pick at least one eval</div>`;
+  if (!Number.isInteger(c.n) || c.n < 1) return `<div class="sw-hint" style="margin-top: var(--sp-3)">n must be a whole number ≥ 1</div>`;
+  if (!c.models.length) return `<div class="sw-hint" style="margin-top: var(--sp-3)">pick at least one model</div>`;
+  if (!sw.plan) return sw.planErr ? "" : `<div class="sw-hint" style="margin-top: var(--sp-3)">sizing the sweep…</div>`;
+  const remaining = planShortfall(sw.plan);
+  const have = Object.values(sw.plan.cells || {})
+    .reduce((a, cell) => a + (cell.have || 0), 0);
+  return `
+    <div class="sw-preview">this sweep will execute ~${esc(plural(remaining, "run"))}${
+      have ? `<span class="sw-hint">(${have} already recorded)</span>` : ""}</div>`;
+}
+
+// The parts of the compose form a plan/selection change redraws - never
+// the whole form, so checkboxes and the n input keep focus mid-edit.
+function renderComposeDerived(sw) {
+  const treat = document.getElementById("sw-treatments");
+  const preview = document.getElementById("sw-preview");
+  if (!treat || !preview) return;
+  treat.innerHTML = treatmentsHtml(sw);
+  preview.innerHTML = previewHtml(sw);
+  const c = sw.compose;
+  const start = document.getElementById("sw-start");
+  if (start) {
+    start.disabled = sw.posting || !c.evals.length || !c.models.length
+      || !Number.isInteger(c.n) || c.n < 1;
+  }
+}
+
+function bindCompose(sw, slot) {
+  const box = slot.querySelector("#sweep-compose");
+  if (!box) return;
+  const changed = (resize = true) => {
+    saveCompose(sw);
+    renderComposeDerived(sw);
+    if (resize) schedulePlan(sw);
+  };
+  box.addEventListener("change", event => {
+    const el = event.target;
+    if (el.dataset.eval !== undefined) {
+      const picked = new Set(sw.compose.evals);
+      el.checked ? picked.add(el.dataset.eval) : picked.delete(el.dataset.eval);
+      sw.compose.evals =
+        (state.evals || []).map(e => e.slug).filter(s => picked.has(s));
+      changed();
+    } else if (el.dataset.model !== undefined) {
+      const picked = new Set(sw.compose.models);
+      el.checked ? picked.add(el.dataset.model) : picked.delete(el.dataset.model);
+      sw.compose.models = [...picked];
+      changed();
+    } else if (el.dataset.tEval !== undefined) {
+      (sw.compose.graders[el.dataset.tEval] ??= {})[el.dataset.tGrader] = el.value;
+      changed(false); // treatments never change the shortfall
+    }
+  });
+  box.querySelector("#sw-n").addEventListener("input", event => {
+    const v = event.target.value.trim();
+    sw.compose.n = /^\d+$/.test(v) ? parseInt(v, 10) : 0;
+    changed();
+  });
+  const addModel = () => {
+    const input = box.querySelector("#sw-model-add");
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    if (!sw.compose.models.includes(name)) sw.compose.models.push(name);
+    if (!sw.compose.custom.includes(name)) sw.compose.custom.push(name);
+    saveCompose(sw);
+    renderSweepSlot(sw); // the model list itself changed shape
+  };
+  box.querySelector("#sw-model-add-go").addEventListener("click", addModel);
+  box.querySelector("#sw-model-add").addEventListener("keydown", event => {
+    if (event.key === "Enter") { event.preventDefault(); addModel(); }
+  });
+  box.querySelector("#sw-start").addEventListener("click", () => startSweep(sw));
+}
+
+async function startSweep(sw) {
+  const c = sw.compose;
+  sw.err = null;
+  sw.posting = true;
+  renderComposeDerived(sw);
+  try {
+    const job = await api("/api/sweep", {
+      body: {
+        evals: c.evals, models: c.models, n: c.n,
+        // without a plan (it errored) the server's defaults apply
+        ...(sw.plan ? { graders: mergedTreatments(sw) } : {}),
+      },
+    });
+    sw.posting = false;
+    sw.job = job;
+    state.sweepActive = true;
+    renderSweepSlot(sw);
+    startSweepPoll();
+  } catch (ex) {
+    sw.posting = false;
+    if (/already running/.test(ex.message)) {
+      // The 409: someone (another tab) started one - show its board
+      renderSweep();
+      return;
+    }
+    sw.err = ex.message;
+    const errSlot = document.getElementById("sw-err");
+    if (errSlot) errSlot.innerHTML = errorBox(ex.message);
+    renderComposeDerived(sw);
+  }
+}
+
+// --- the live board ---------------------------------------------------------
+
+// Cell states colored strictly by token semantics: accent = actively
+// being worked, pass/fail = outcomes, neutral for queued. A cancelled
+// (or crashed) job can leave a cell mid-state; a spinner that never
+// stops would lie, so a finished job renders those cells as "stopped".
+const SWEEP_CELL_STATES = {
+  queued: ["st-queued", "queued"],
+  loading: ["st-active", "loading model"],
+  running: ["st-active", "running"],
+  grading: ["st-active", "grading"],
+  done: ["st-done", "done"],
+  failed: ["st-failed", "failed"],
+};
+
+function sweepCellHtml(cell, active) {
+  let [cls, label] = SWEEP_CELL_STATES[cell.state] || ["st-queued", cell.state || "?"];
+  if (!active && (cls === "st-active" || cell.state === "queued")) {
+    [cls, label] = ["st-stopped", cell.state === "queued" ? "not run" : "stopped"];
+  }
+  const spin = active && cls === "st-active" ? `<span class="spin"></span>` : "";
+  return `
+    <td><div class="sw-cell ${cls}">
+      <span class="sw-state">${spin}${esc(label)}</span>
+      <span class="sw-have">${cell.have ?? 0}/${cell.target ?? 0}</span>
+      <div class="sw-sub">
+        <span title="mean so far, default grader">${
+          cell.mean == null ? "–" : esc(fmtScore(cell.mean))}</span>
+        ${cell.failed ? `<span class="sw-failn">${
+          esc(plural(cell.failed, "fail"))}</span>` : ""}
+      </div>
+    </div></td>`;
+}
+
+const stateChipHtml = (label, tone, spinning) => `
+  <span class="chip-state${tone ? " " + tone : ""}">${
+    spinning ? `<span class="spin"></span>` : ""}${esc(label)}</span>`;
+
+const SWEEP_JOB_CHIPS = {
+  queued: ["", true], running: ["accent", true],
+  done: ["pass", false], cancelled: ["", false], failed: ["fail", false],
+};
+
+function sweepBoardHtml(sw) {
+  const job = sw.job;
+  const active = sweepJobActive(job);
+  const spec = job.spec;
+  const [tone, spinning] = SWEEP_JOB_CHIPS[job.status] || ["", false];
+  const deferredChip = d => {
+    if (d.state === "done") return stateChipHtml("done", "pass", false);
+    if (d.state === "failed") return stateChipHtml("failed", "fail", false);
+    if (d.state === "running" && active) return stateChipHtml("running", "accent", true);
+    return stateChipHtml(active ? "queued" : "not run", "", false);
+  };
+  return `
+    <div class="sw-board-head">
+      ${stateChipHtml(job.status, tone, spinning)}
+      <span class="sw-spec">${esc(plural(spec.evals.length, "eval"))} ×
+        ${esc(plural(spec.models.length, "model"))} · n=${spec.n}
+        · started ${esc(ago(job.started))}</span>
+      ${active ? `
+        <span class="sw-cancel">
+          <button type="button" class="btn btn-sm btn-ghost" id="sw-cancel"
+                  ${job.cancel_requested ? "disabled" : ""}>
+            ${job.cancel_requested ? "Cancelling…" : "Cancel sweep"}</button>
+          <span class="sw-hint">stops after the current run — never kills a
+            runner mid-run</span>
+        </span>` : ""}
+    </div>
+    ${job.status === "failed" ? errorBox(job.error || "the sweep failed") : ""}
+    <div id="sw-board-err"></div>
+    <div class="card matrix-wrap">
+      <table class="matrix sw-board">
+        <thead><tr><th>model</th>${spec.evals.map(slug => `
+          <th><a href="#/eval/${enc(slug)}/results">${
+            esc(evalDisplayName(slug))}</a></th>`).join("")}</tr></thead>
+        <tbody>${spec.models.map(model => `
+          <tr>
+            <td>${esc(model)}</td>
+            ${spec.evals.map(slug => sweepCellHtml(
+              job.cells[slug + SWEEP_CELL_SEP + model] || {}, active)).join("")}
+          </tr>`).join("")}</tbody>
+      </table>
+    </div>
+    ${active ? `
+      <div class="sw-current">
+        <span class="spin"></span>
+        ${job.cancel_requested
+          ? `cancelling — finishing the current run`
+          : job.current
+            ? `running <b>${esc(job.current.eval)}</b> /
+               <b>${esc(job.current.model)}</b> / <b>${esc(job.current.task)}</b>`
+            : `between runs…`}
+      </div>` : ""}
+    <div class="env-block job-log sw-log" style="margin-top: ${
+      active ? "0" : "var(--sp-4)"}">${
+      (job.log || []).length
+        ? job.log.slice(-40).map(l => `<div class="log-line">${esc(l)}</div>`).join("")
+        : `<div class="log-line dim">waiting for the first run…</div>`}</div>
+    ${(job.deferred || []).length ? `
+      <div class="sw-section-h">Deferred grading</div>
+      ${job.deferred.map(d => `
+        <div class="sw-def-row">
+          <span class="sw-def-name">${esc(evalDisplayName(d.eval))} /
+            ${esc(d.grader)}</span>
+          ${deferredChip(d)}
+        </div>`).join("")}` : ""}`;
+}
+
+function bindBoard(sw, slot) {
+  const cancel = slot.querySelector("#sw-cancel");
+  if (cancel) cancel.addEventListener("click", async () => {
+    cancel.disabled = true;
+    cancel.textContent = "Cancelling…";
+    try {
+      sw.job = await api("/api/sweep/cancel", { body: {} });
+      renderBoardInPlace(sw);
+    } catch (ex) {
+      const errSlot = document.getElementById("sw-board-err");
+      if (errSlot) errSlot.innerHTML = errorBox(ex.message);
+    }
+  });
+}
+
+// The ~1s board refresh: full markup swap (the board is pure job state),
+// with focus put back by id so Cancel stays reachable by keyboard. The
+// log tail pins to its bottom like a terminal would.
+function renderBoardInPlace(sw) {
+  const slot = document.getElementById("sweep-slot");
+  if (!slot) return;
+  const focusId = document.activeElement?.id;
+  slot.innerHTML = sweepBoardHtml(sw);
+  bindBoard(sw, slot);
+  if (focusId) document.getElementById(focusId)?.focus();
+  const log = slot.querySelector(".sw-log");
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+// The #/sweep page body: the live board while a sweep runs; otherwise the
+// compose form (pre-filled from localStorage), with the last sweep's
+// board kept below it as the record of what just happened.
+async function renderSweepSlot(sw) {
+  const slot = document.getElementById("sweep-slot");
+  if (!slot) return;
+  if (sweepJobActive(sw.job)) {
+    renderBoardInPlace(sw);
+    return;
+  }
+  await ensureComposeInputs(sw);
+  if (!document.getElementById("sweep-slot")) return; // navigated away
+  slot.innerHTML = `
+    ${sw.job ? "" : sweepIntroHtml()}
+    <div class="card sweep-compose" id="sweep-compose">${composeHtml(sw)}</div>
+    ${sw.job ? `<div class="sw-section-h">Last sweep</div>${sweepBoardHtml(sw)}` : ""}`;
+  bindCompose(sw, slot);
+  bindBoard(sw, slot);
+  fetchSweepPlan(sw);
+}
+
+async function renderSweep() {
+  document.body.classList.remove("wb");
+  view.innerHTML = `
+    <div class="crumb"><a href="#/">← shelf</a></div>
+    <h2 style="margin: 0 0 var(--sp-4); font-size: var(--fs-xl); font-weight: 650;
+               letter-spacing: -0.02em">Sweeps</h2>
+    <div id="sweep-slot">Loading…</div>`;
+  const sw = sweepsState();
+  try {
+    const doc = await api("/api/sweep");
+    sw.job = doc.active === false ? null : doc;
+  } catch (ex) {
+    const slot = document.getElementById("sweep-slot");
+    if (slot) slot.innerHTML = errorBox("Couldn't reach the sweep API: " + ex.message);
+    return;
+  }
+  state.sweepActive = sweepJobActive(sw.job);
+  await renderSweepSlot(sw);
+  if (state.sweepActive) startSweepPoll();
+}
+
+// --- the sweep poll loop ----------------------------------------------------
+//
+// Polls /api/sweep ~1s while a sweep is active - wherever the user is.
+// It keeps state.sweepActive true, so the results ticker below re-fetches
+// whichever results surface is open and results land live mid-sweep; the
+// board itself refreshes when #/sweep is showing. Token-guarded so there
+// is only ever one loop.
+
+let sweepPollToken = 0;
+
+function startSweepPoll() {
+  const token = ++sweepPollToken;
+  (async () => {
+    let errStreak = 0;
+    while (token === sweepPollToken) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (token !== sweepPollToken) return;
+      const sw = sweepsState();
+      let doc;
+      try {
+        doc = await api("/api/sweep");
+        errStreak = 0;
+      } catch {
+        // Tolerate transient blips; a server that stays gone stops the loop
+        if (++errStreak >= 3) break;
+        continue;
+      }
+      if (token !== sweepPollToken) return;
+      sw.job = doc.active === false ? null : doc;
+      const active = sweepJobActive(sw.job);
+      state.sweepActive = active;
+      if (document.getElementById("sweep-slot")) renderSweepSlot(sw);
+      if (!active) {
+        // One last refresh so the final grades land without waiting a tick
+        refreshVisibleResults();
+        return;
+      }
+    }
+    state.sweepActive = false;
+  })();
+}
+
+// On boot: one look at /api/sweep, so a page reload mid-sweep livens the
+// ticker and the board again without requiring a visit to #/sweep first.
+async function syncSweepOnBoot() {
+  try {
+    const doc = await api("/api/sweep");
+    if (doc.active === false || !sweepJobActive(doc)) return;
+    sweepsState().job = doc;
+    state.sweepActive = true;
+    startSweepPoll();
+  } catch { /* the sweep view will report on visit */ }
+}
+
 // --- live poll ticker --------------------------------------------------------
 //
 // Live like serve: while a sweep job is active, re-fetch whichever results
 // surface is visible (the per-eval tab, the global matrix, or the shelf's
-// results strips) every ~3s. state.sweepActive starts false, so this stays
-// inert until Task 4's sweep board flips it.
+// results strips) every ~3s. Gated on state.sweepActive, which the sweep
+// poll loop above maintains.
 
 let pollTickBusy = false;
 
-async function pollResultsTick() {
-  if (!state.sweepActive || pollTickBusy) return;
+async function refreshVisibleResults() {
+  if (pollTickBusy) return;
   pollTickBusy = true;
   try {
     if (state.wb && state.wb.surface && state.wb.surface.results) {
@@ -3925,6 +4631,10 @@ async function pollResultsTick() {
   } finally {
     pollTickBusy = false;
   }
+}
+
+function pollResultsTick() {
+  if (state.sweepActive) refreshVisibleResults();
 }
 
 setInterval(pollResultsTick, 3000);
@@ -3968,6 +4678,12 @@ function route() {
     document.body.classList.remove("wb");
     return renderResultsMatrix();
   }
+  if (hashPath === "#/sweep") {
+    stashWorkbench();
+    state.wb = null;
+    document.body.classList.remove("wb");
+    return renderSweep();
+  }
   const m = hashPath.match(
     /^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?|(\/runs)(?:\/([^/]+))?|(\/results))?$/);
   document.body.classList.toggle("wb", !!m);
@@ -3996,6 +4712,7 @@ function route() {
 
 window.addEventListener("hashchange", route);
 route();
+syncSweepOnBoot();
 </script>
 </body>
 </html>

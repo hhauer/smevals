@@ -217,6 +217,33 @@ def test_studio_html_wires_results_routes():
     assert "/api/evals/${enc(wb.slug)}/results" in html
 
 
+def test_studio_html_wires_sweep_routes():
+    """Task 4: the Sweeps surface (#/sweep) is wired into the router and
+    calls Task 3's orchestrator endpoints - compose via the plan preview,
+    start/poll/cancel via /api/sweep, models via /api/models."""
+    html = studio.studio_html()
+
+    # the surface: a nav link and a route handler
+    assert "#/sweep" in html
+    assert "renderSweep" in html
+
+    # the orchestrator endpoints
+    assert 'api("/api/sweep")' in html
+    assert "/api/sweep/plan?" in html
+    assert 'api("/api/sweep/cancel"' in html
+    assert 'api("/api/models")' in html
+
+    # the sweep poll flips the results ticker's gate - live results mid-sweep
+    assert "state.sweepActive =" in html
+
+    # composition survives a studio restart (localStorage + the exact hint)
+    assert "smevals-sweep-compose" in html
+    assert "already-recorded runs count" in html
+
+    # the honest cancel label
+    assert "stops after the current run" in html
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 
