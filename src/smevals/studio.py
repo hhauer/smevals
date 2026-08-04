@@ -73,6 +73,25 @@ from .site import (
 # top-level file or directory groups under "other" in the file tree.
 KNOWN_KINDS = ("tasks", "configs", "graders", "checkers")
 
+# Content-Type by extension for GET .../raw, the binary-safe artifact read.
+# Anything unlisted streams as application/octet-stream - deliberately
+# including .html: a run artifact is model-influenced content, and serving
+# it as text/html would make it a same-origin document (stored XSS).
+RAW_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".txt": "text/plain; charset=utf-8",
+    ".log": "text/plain; charset=utf-8",
+    ".md": "text/plain; charset=utf-8",
+    ".yaml": "text/plain; charset=utf-8",
+    ".yml": "text/plain; charset=utf-8",
+    ".json": "application/json",
+}
+
 
 def studio_html():
     return (files("smevals") / "studio.html").read_text()
@@ -552,6 +571,9 @@ def run_studio(root, port, token):
             if tail == "file":
                 rel = urllib.parse.parse_qs(query).get("path", [""])[0]
                 return self.serve_file(eval_dir, rel)
+            if tail == "raw":
+                rel = urllib.parse.parse_qs(query).get("path", [""])[0]
+                return self.serve_raw(eval_dir, rel)
             if tail == "runs":
                 return self.reply_json(collect_eval(eval_dir)["rows"])
             if tail == "results":
@@ -571,6 +593,20 @@ def run_studio(root, port, token):
                     "executable": os.access(target, os.X_OK),
                 }
             )
+
+        def serve_raw(self, eval_dir, rel):
+            """The read-only artifact stream: bytes verbatim, Content-Type
+            sniffed by extension (RAW_CONTENT_TYPES - never text/html), for
+            the run views' inline images and artifact downloads. /file
+            JSON-wraps utf-8 text, which mangles a PNG; this doesn't.
+            """
+            target = resolve_eval_file(eval_dir, rel)
+            if target is None:
+                return self.reply_error(404, "no such file")
+            ctype = RAW_CONTENT_TYPES.get(
+                target.suffix.lower(), "application/octet-stream"
+            )
+            self.reply(200, target.read_bytes(), ctype)
 
         def handle_get_job(self, job_id):
             # Serialized under the jobs lock: a sweep thread mutates its

@@ -5,6 +5,7 @@ two scaffold_eval-created Evals - real files, real HTTP, no mocks, the
 repo's usual style for studio.py's sibling site.py.
 """
 
+import base64
 import hashlib
 import http.client
 import json
@@ -498,6 +499,141 @@ def test_file_read_rejects_null_byte_without_crashing(server):
     assert status == 404
     assert ctype == "application/json"
     assert "error" in json.loads(body)
+
+
+# --- GET /api/evals/<slug>/raw -----------------------------------------------
+#
+# The binary-safe artifact read: /file JSON-wraps text (mojibake for a PNG),
+# so run artifacts stream verbatim through /raw with an extension-sniffed
+# Content-Type. Read-only, traversal-guarded like every file route, and
+# never text/html - an artifact a runner (a model!) wrote must not become
+# a same-origin document.
+
+# A real 1x1 transparent PNG - binary bytes including NUL and high bits,
+# so an encode/decode anywhere in the path corrupts it and fails the test
+PNG_1PX = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+    "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def raw_path(eval_dir, run_dir, name):
+    "The ?path= value for an artifact in run_dir, eval-relative and URL-safe"
+    rel = run_dir.relative_to(eval_dir) / name
+    return urllib.parse.quote(str(rel))
+
+
+def test_raw_streams_png_bytes_verbatim(server):
+    get, root, first, second = server
+    run_dir = write_run(first / "runs")
+    (run_dir / "render.png").write_bytes(PNG_1PX)
+    status, ctype, body = get(
+        f"/api/evals/first-eval/raw?path={raw_path(first, run_dir, 'render.png')}"
+    )
+    assert status == 200
+    assert ctype == "image/png"
+    assert body == PNG_1PX
+
+
+def test_raw_sniffs_content_type_by_extension(server):
+    get, root, first, second = server
+    run_dir = write_run(first / "runs")
+    cases = {
+        "notes.txt": (b"plain text", "text/plain; charset=utf-8"),
+        "photo.JPG": (b"\xff\xd8\xff", "image/jpeg"),
+        "chart.svg": (b"<svg xmlns='http://www.w3.org/2000/svg'/>", "image/svg+xml"),
+        "data.json": (b'{"ok": true}', "application/json"),
+    }
+    for name, (content, _) in cases.items():
+        (run_dir / name).write_bytes(content)
+    for name, (content, expected) in cases.items():
+        status, ctype, body = get(
+            f"/api/evals/first-eval/raw?path={raw_path(first, run_dir, name)}"
+        )
+        assert status == 200, name
+        assert ctype == expected, name
+        assert body == content, name
+
+
+def test_raw_never_serves_text_html(server):
+    # Stored-XSS guard: a runner-written .html artifact must download as an
+    # opaque blob, never render as a same-origin document
+    get, root, first, second = server
+    run_dir = write_run(first / "runs")
+    (run_dir / "page.html").write_bytes(b"<script>alert(1)</script>")
+    (run_dir / "page.htm").write_bytes(b"<script>alert(1)</script>")
+    for name in ("page.html", "page.htm"):
+        status, ctype, _ = get(
+            f"/api/evals/first-eval/raw?path={raw_path(first, run_dir, name)}"
+        )
+        assert status == 200
+        assert ctype == "application/octet-stream", name
+
+
+def test_raw_unknown_extension_is_octet_stream(server):
+    get, root, first, second = server
+    run_dir = write_run(first / "runs")
+    (run_dir / "blob.bin").write_bytes(b"\x00\x01\x02")
+    status, ctype, body = get(
+        f"/api/evals/first-eval/raw?path={raw_path(first, run_dir, 'blob.bin')}"
+    )
+    assert status == 200
+    assert ctype == "application/octet-stream"
+    assert body == b"\x00\x01\x02"
+
+
+def test_raw_requires_studio_key(server):
+    get, root, first, second = server
+    run_dir = write_run(first / "runs")
+    (run_dir / "render.png").write_bytes(PNG_1PX)
+    path = f"/api/evals/first-eval/raw?path={raw_path(first, run_dir, 'render.png')}"
+    status, ctype, body = get(path, headers={"X-Studio-Key": None})
+    assert status == 403
+    assert "error" in json.loads(body)
+
+
+def test_raw_rejects_dotdot_traversal(server):
+    get, root, first, second = server
+    (root / "raw-secret.png").write_bytes(PNG_1PX)
+    status, _, _ = get("/api/evals/first-eval/raw?path=../raw-secret.png")
+    assert status == 404
+
+
+def test_raw_rejects_absolute_path(server):
+    get, root, first, second = server
+    secret = root / "raw-abs-secret.png"
+    secret.write_bytes(PNG_1PX)
+    status, _, _ = get(f"/api/evals/first-eval/raw?path={secret}")
+    assert status == 404
+
+
+def test_raw_rejects_symlink_escape(server):
+    get, root, first, second = server
+    outside = root / "raw-outside.png"
+    outside.write_bytes(PNG_1PX)
+    (first / "raw-escape.png").symlink_to(outside)
+    status, _, _ = get("/api/evals/first-eval/raw?path=raw-escape.png")
+    assert status == 404
+
+
+def test_raw_unknown_path_is_404(server):
+    get, *_ = server
+    status, _, body = get("/api/evals/first-eval/raw?path=runs/nope/render.png")
+    assert status == 404
+    assert "error" in json.loads(body)
+
+
+def test_raw_missing_path_param_is_404(server):
+    get, *_ = server
+    status, _, _ = get("/api/evals/first-eval/raw")
+    assert status == 404
+
+
+def test_raw_directory_path_is_404(server):
+    get, root, first, second = server
+    write_run(first / "runs")
+    status, _, _ = get("/api/evals/first-eval/raw?path=runs")
+    assert status == 404
 
 
 # --- POST /api/evals (scaffold) ----------------------------------------------
