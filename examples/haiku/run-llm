@@ -9,7 +9,11 @@ set -euo pipefail
 # An empty response is a harness problem (e.g. a thinking model hitting
 # a server-side token cap before emitting content), not model evidence:
 # fail the Run so it is excluded and replaced rather than graded.
-response="$(llm -m "$SMEVALS_MODEL" "$SMEVALS_PROMPT")"
+response="$(timeout 2400 llm -m "$SMEVALS_MODEL" "$SMEVALS_PROMPT")" || {
+    status=$?
+    [[ $status -eq 124 ]] && echo "runner timeout after 2400s" >&2
+    exit $status
+}
 llm logs -c --json > log.json
 if [[ -z "${response//[[:space:]]/}" ]]; then
     echo "empty model response" >&2
