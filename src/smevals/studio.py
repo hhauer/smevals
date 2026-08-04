@@ -19,6 +19,13 @@ running a Task and grading a Run as background jobs, dry-running a grader
 against unsaved edits, and best-effort model suggestions. Runs and grades
 go through cli.py's real execution/grading internals (execute_run,
 run_checks, score_and_outcome) so Studio never re-implements them.
+
+Phase 2 adds the sweep orchestrator endpoints (/api/sweep, its plan
+preview and cancel) on top of the same job table: one sweep at a time,
+executed by sweep.run_sweep in a background thread. The lock discipline:
+a sweep holds an eval's active_jobs slot only around each individual
+run, so bench actions queue politely between runs - and 409 with a
+retry-inviting message while a run is in flight.
 """
 
 import hashlib
@@ -29,15 +36,18 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import traceback
 import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
+from . import sweep
 from .authoring import FILE_SCHEMAS, scaffold_eval, validate_eval
 from .cli import (
     discover_evals,
@@ -343,11 +353,20 @@ def run_studio(root, port, token):
     active_jobs = {}
     jobs_lock = threading.Lock()
     llm_models_cache = {}
+    lms_inventory_cache = {}
+    # The one reserved sweep slot beside active_jobs: the active-or-most-
+    # recent sweep job plus its cancel Event, guarded by jobs_lock
+    sweep_state = {"job": None, "cancel": None}
 
     def cached_llm_models():
         if "value" not in llm_models_cache:
             llm_models_cache["value"] = llm_models()
         return llm_models_cache["value"]
+
+    def cached_lms_inventory():
+        if "value" not in lms_inventory_cache:
+            lms_inventory_cache["value"] = sweep.lms_inventory()
+        return lms_inventory_cache["value"]
 
     def run_job(job, slug, runs_root, task, config_name, runner, model):
         "Execute a queued run job in the background, updating it in place"
@@ -429,11 +448,21 @@ def run_studio(root, port, token):
             if parts.path == "/api/schemas":
                 return self.reply_json(FILE_SCHEMAS)
             if parts.path == "/api/models":
+                local = cached_lms_inventory()
                 return self.reply_json(
-                    {"models": sorted(config_models(root) | cached_llm_models())}
+                    {
+                        "models": sorted(
+                            config_models(root) | cached_llm_models() | local
+                        ),
+                        "local": sorted(local),
+                    }
                 )
             if parts.path == "/api/results":
                 return self.reply_json(results_matrix(discover_slugs(root)))
+            if parts.path == "/api/sweep":
+                return self.handle_get_sweep()
+            if parts.path == "/api/sweep/plan":
+                return self.handle_sweep_plan(parts.query)
             if parts.path.startswith("/api/jobs/"):
                 return self.handle_get_job(parts.path.removeprefix("/api/jobs/"))
             if parts.path.startswith("/api/evals/"):
@@ -448,6 +477,10 @@ def run_studio(root, port, token):
                 return self.reply_error(403, "missing or invalid X-Studio-Key header")
             if parts.path == "/api/evals":
                 return self.handle_scaffold()
+            if parts.path == "/api/sweep":
+                return self.handle_post_sweep()
+            if parts.path == "/api/sweep/cancel":
+                return self.handle_cancel_sweep()
             if parts.path.startswith("/api/evals/"):
                 slug, _, tail = parts.path.removeprefix("/api/evals/").partition("/")
                 eval_dir = self.resolve_eval(slug)
@@ -456,7 +489,7 @@ def run_studio(root, port, token):
                 if tail == "run":
                     return self.handle_run(slug, eval_dir)
                 if tail == "grade":
-                    return self.handle_grade(eval_dir)
+                    return self.handle_grade(slug, eval_dir)
                 if tail == "dryrun":
                     return self.handle_dryrun(eval_dir)
             self.reply_error(404, "not found")
@@ -540,10 +573,14 @@ def run_studio(root, port, token):
             )
 
         def handle_get_job(self, job_id):
-            job = jobs.get(job_id)
-            if job is None:
+            # Serialized under the jobs lock: a sweep thread mutates its
+            # job dict concurrently with polls of it
+            with jobs_lock:
+                job = jobs.get(job_id)
+                payload = None if job is None else json.dumps(job).encode()
+            if payload is None:
                 return self.reply_error(404, f"no such job: {job_id}")
-            self.reply_json(job)
+            self.reply(200, payload, "application/json")
 
         # --- POST /api/evals: scaffold -------------------------------
 
@@ -658,8 +695,9 @@ def run_studio(root, port, token):
                 return self.reply_error(400, "no model given and config has no default")
 
             with jobs_lock:
-                if slug in active_jobs:
-                    return self.reply_error(409, f"a job is already active for {slug}")
+                conflict = self.slot_conflict(slug)
+                if conflict:
+                    return self.reply_error(409, conflict)
                 job = {
                     "id": uuid.uuid4().hex,
                     "kind": "run",
@@ -680,12 +718,29 @@ def run_studio(root, port, token):
             ).start()
             self.reply_json(job, 202)
 
+        def slot_conflict(self, slug):
+            """The 409 message for a bench action on a busy eval, or None.
+            Caller holds jobs_lock. The sweep frees the slot between its
+            runs, so its message invites a retry - the spec's exact text."""
+            holder = active_jobs.get(slug)
+            if holder is None:
+                return None
+            if jobs[holder]["kind"] == "sweep":
+                return sweep.SWEEP_HOLDS_EVAL_MESSAGE
+            return f"a job is already active for {slug}"
+
         # --- POST /api/evals/<slug>/grade -------------------------------
 
-        def handle_grade(self, eval_dir):
+        def handle_grade(self, slug, eval_dir):
             body = self.read_json_body()
             if body is None:
                 return
+            # Grading is synchronous and takes no slot itself, but never
+            # runs against an eval a sweep is mid-run on
+            with jobs_lock:
+                holder = active_jobs.get(slug)
+                if holder is not None and jobs[holder]["kind"] == "sweep":
+                    return self.reply_error(409, sweep.SWEEP_HOLDS_EVAL_MESSAGE)
             run_dir = resolve_run_dir(eval_dir, body.get("run"))
             if run_dir is None:
                 return self.reply_error(404, "no such run")
@@ -740,6 +795,106 @@ def run_studio(root, port, token):
                     "artifacts": artifacts,
                 }
             )
+
+        # --- /api/sweep: the one-at-a-time sweep orchestrator -----------
+
+        def handle_get_sweep(self):
+            "The active-or-most-recent sweep job, or {active: false}"
+            with jobs_lock:
+                job = sweep_state["job"]
+                payload = json.dumps(job if job else {"active": False}).encode()
+            self.reply(200, payload, "application/json")
+
+        def handle_sweep_plan(self, query):
+            """The compose-form preview: per-cell shortfall plus default
+            grader treatments, for ?evals=&models=&n= (comma-separated,
+            evals defaulting to all; models may be empty while the form
+            is still being filled in)."""
+            params = urllib.parse.parse_qs(query)
+
+            def csv(name):
+                values = []
+                for chunk in params.get(name, []):
+                    values += [v for v in chunk.split(",") if v]
+                return values
+
+            body = {"models": csv("models")}
+            if csv("evals"):
+                body["evals"] = csv("evals")
+            if params.get("n"):
+                try:
+                    body["n"] = int(params["n"][0])
+                except ValueError:
+                    return self.reply_error(400, "n must be an integer")
+            evals = discover_slugs(root)
+            try:
+                spec = sweep.validate_spec(body, evals, require_models=False)
+            except ValueError as ex:
+                return self.reply_error(400, str(ex))
+            self.reply_json(sweep.plan_preview(spec, evals))
+
+        def handle_post_sweep(self):
+            body = self.read_json_body()
+            if body is None:
+                return
+            evals = discover_slugs(root)
+            try:
+                spec = sweep.validate_spec(body, evals)
+            except ValueError as ex:
+                return self.reply_error(400, str(ex))
+
+            # Building the job reads runs/ off disk - do it outside the
+            # lock, then claim the sweep slot re-checking for a racing POST
+            job = sweep.build_job(uuid.uuid4().hex, spec, evals, now_iso())
+            cancel = threading.Event()
+            with jobs_lock:
+                active = sweep_state["job"]
+                if active is not None and active["status"] in ("queued", "running"):
+                    return self.reply_error(409, sweep.SWEEP_ACTIVE_MESSAGE)
+                jobs[job["id"]] = job
+                sweep_state["job"] = job
+                sweep_state["cancel"] = cancel
+                payload = json.dumps(job).encode()
+
+            def acquire(slug):
+                # Wait politely for a bench job to free the eval's slot;
+                # a cancel request also ends the wait
+                while not cancel.is_set():
+                    with jobs_lock:
+                        if slug not in active_jobs:
+                            active_jobs[slug] = job["id"]
+                            return True
+                    time.sleep(0.5)
+                return False
+
+            def release(slug):
+                with jobs_lock:
+                    if active_jobs.get(slug) == job["id"]:
+                        del active_jobs[slug]
+
+            hooks = SimpleNamespace(
+                lock=jobs_lock, cancel=cancel, acquire=acquire, release=release
+            )
+            threading.Thread(
+                target=sweep.run_sweep, args=(job, spec, evals, hooks), daemon=True
+            ).start()
+            self.reply(202, payload, "application/json")
+
+        def handle_cancel_sweep(self):
+            body = self.read_json_body()
+            if body is None:
+                return
+            with jobs_lock:
+                job = sweep_state["job"]
+                if job is None:
+                    return self.reply_error(404, "no sweep to cancel")
+                job["cancel_requested"] = True
+                cancel = sweep_state["cancel"]
+                payload = json.dumps(job).encode()
+            # Idempotent: cancelling a finished sweep changes nothing
+            if cancel is not None:
+                cancel.set()
+            self.reply(200, payload, "application/json")
 
         def reply_json(self, data, status=200):
             self.reply(status, json.dumps(data).encode(), "application/json")

@@ -16,12 +16,22 @@ import socket
 import subprocess
 import threading
 import time
+from datetime import datetime
 
 import pytest
 import yaml
 
-from conftest import python_script, read_yaml, write_executable, write_grade, write_run
+from conftest import (
+    lms_calls,
+    python_script,
+    read_yaml,
+    run_dirs,
+    write_executable,
+    write_grade,
+    write_run,
+)
 from smevals import site, studio
+from smevals.sweep import SWEEP_ACTIVE_MESSAGE, SWEEP_HOLDS_EVAL_MESSAGE, cell_key
 from smevals.authoring import FILE_SCHEMAS, scaffold_eval
 from smevals.cli import scalar_env_vars
 
@@ -1126,6 +1136,15 @@ FAKE_LLM = python_script("""\
     """)
 
 
+def isolate_from_real_lms(monkeypatch, tmp_path):
+    """Point HOME at a scratch dir: sweep.lms_path falls back to
+    ~/.lmstudio/bin/lms, and /api/models must never touch a real LM
+    Studio on the machine running the tests."""
+    home = tmp_path / "no-lms-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+
 def test_models_configs_only_fallback_without_llm_on_path(
     server, monkeypatch, tmp_path
 ):
@@ -1133,6 +1152,7 @@ def test_models_configs_only_fallback_without_llm_on_path(
     empty_path_dir = tmp_path / "empty-path"
     empty_path_dir.mkdir()
     monkeypatch.setenv("PATH", str(empty_path_dir))
+    isolate_from_real_lms(monkeypatch, tmp_path)
 
     status, ctype, body = get("/api/models")
     assert status == 200
@@ -1141,6 +1161,7 @@ def test_models_configs_only_fallback_without_llm_on_path(
     assert set(data["models"]) == {
         "gpt-4.1-mini"
     }  # both scaffolded evals' config default
+    assert data["local"] == []
 
 
 def test_models_parses_real_llm_plain_text_format(server, monkeypatch, tmp_path):
@@ -1149,6 +1170,7 @@ def test_models_parses_real_llm_plain_text_format(server, monkeypatch, tmp_path)
     bin_dir.mkdir()
     write_executable(bin_dir / "llm", FAKE_LLM)
     monkeypatch.setenv("PATH", str(bin_dir))
+    isolate_from_real_lms(monkeypatch, tmp_path)
 
     status, _, body = get("/api/models")
     assert status == 200
@@ -1441,3 +1463,479 @@ def test_cli_studio_help():
     assert "Usage: smevals studio" in result.stdout
     assert "127.0.0.1" in result.stdout
     assert "--port" in result.stdout
+
+
+# --- sweeps: /api/sweep, /api/sweep/plan, /api/sweep/cancel -------------------
+#
+# Lifecycle tests drive the real orchestrator: a live server, real stub
+# runners, and a fake `lms` executable on PATH recording its argv (the
+# fake_lms fixture also redirects HOME so sweep.lms_path can never fall
+# back to the real ~/.lmstudio/bin/lms - these tests run on the machine
+# that hosts the real local sweeps and must NEVER touch its LM Studio).
+
+# Sleeps long enough to observe/interrupt a sweep mid-flight
+SLOW_SWEEP_RUNNER = python_script("""\
+    import time
+    time.sleep(0.3)
+    print("STUB OUTPUT")
+    """)
+
+# Emits a score so cell means are observable
+SCORING_CHECKER = python_script("""\
+    import json
+    print(json.dumps({"score": 1.0}))
+    """)
+
+
+def order_logging_runner(log_path, label):
+    "A stub runner appending '<label> <model>' per execution to a shared log"
+    return python_script(f"""\
+        import os
+        with open({str(log_path)!r}, "a") as f:
+            f.write("{label} " + os.environ["SMEVALS_MODEL"] + "\\n")
+        print("STUB OUTPUT")
+        """)
+
+
+def post_sweep(get, spec, expect=202):
+    status, _, body = get("/api/sweep", method="POST", body=spec)
+    assert status == expect, body
+    return json.loads(body)
+
+
+def wait_sweep(get, timeout=30):
+    "Poll GET /api/sweep until the job leaves queued/running"
+    deadline = time.monotonic() + timeout
+    while True:
+        _, _, body = get("/api/sweep")
+        job = json.loads(body)
+        if job.get("status") not in ("queued", "running"):
+            return job
+        assert time.monotonic() < deadline, f"sweep never finished: {job}"
+        time.sleep(0.05)
+
+
+def test_sweep_get_initially_inactive(server):
+    get, *_ = server
+    status, ctype, body = get("/api/sweep")
+    assert status == 200
+    assert ctype == "application/json"
+    assert json.loads(body) == {"active": False}
+
+
+def test_sweep_endpoints_require_key(server):
+    get, *_ = server
+    status, _, _ = get("/api/sweep", headers={"X-Studio-Key": None})
+    assert status == 403
+
+
+def test_sweep_runs_eval_major_within_model_major(server, fake_lms, tmp_path):
+    get, root, first, second = server
+    order_log = tmp_path / "order.log"
+    write_executable(first / "run-llm", order_logging_runner(order_log, "first-eval"))
+    write_executable(second / "run-llm", order_logging_runner(order_log, "second-eval"))
+
+    job = post_sweep(
+        get,
+        {
+            "evals": ["first-eval", "second-eval"],
+            "models": ["hosted-a", "hosted-b"],
+            "n": 1,
+        },
+    )
+    assert job["kind"] == "sweep"
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+    assert order_log.read_text().splitlines() == [
+        "first-eval hosted-a",
+        "second-eval hosted-a",
+        "first-eval hosted-b",
+        "second-eval hosted-b",
+    ]
+    for slug in ("first-eval", "second-eval"):
+        for model in ("hosted-a", "hosted-b"):
+            cell = job["cells"][cell_key(slug, model)]
+            assert cell["state"] == "done"
+            assert cell["have"] == 1
+            assert cell["done"] == 1
+    # The sweep job is also a plain job: pollable at /api/jobs/<id>
+    status, _, body = get(f"/api/jobs/{job['id']}")
+    assert status == 200
+    assert json.loads(body)["kind"] == "sweep"
+
+
+def test_sweep_local_model_unloads_then_loads_with_context_length(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+
+    post_sweep(
+        get, {"evals": ["first-eval"], "models": ["local-alpha", "hosted-x"], "n": 1}
+    )
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+    # unload --all always precedes a local load; -c carries the spec'd
+    # 32768 default; the hosted model contributes no lms calls; one final
+    # unload precedes the deferred pass because a local model was loaded
+    assert lms_calls(fake_lms) == [
+        ["ls"],
+        ["unload", "--all"],
+        ["load", "local-alpha", "-c", "32768", "-y"],
+        ["unload", "--all"],
+    ]
+
+
+def test_sweep_hosted_models_trigger_no_lms_load_or_unload(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+
+    post_sweep(get, {"evals": ["first-eval"], "models": ["hosted-only"], "n": 1})
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+    # Only the inventory probe - a hosted-only sweep never loads/unloads
+    assert lms_calls(fake_lms) == [["ls"]]
+
+
+def test_sweep_load_failure_marks_model_cells_failed_and_continues(
+    server, fake_lms, monkeypatch
+):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    monkeypatch.setenv("FAKE_LMS_FAIL_LOAD", "local-alpha")
+
+    post_sweep(
+        get, {"evals": ["first-eval"], "models": ["local-alpha", "hosted-b"], "n": 1}
+    )
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+    assert job["cells"][cell_key("first-eval", "local-alpha")]["state"] == "failed"
+    assert job["cells"][cell_key("first-eval", "local-alpha")]["have"] == 0
+    hosted = job["cells"][cell_key("first-eval", "hosted-b")]
+    assert hosted["state"] == "done"
+    assert hosted["have"] == 1
+    assert any("model not found" in line for line in job["log"])
+
+
+def test_sweep_grades_inline_per_run_and_updates_mean(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    write_executable(first / "checkers" / "score", SCORING_CHECKER)
+    (first / "graders" / "default.yaml").write_text(
+        yaml.safe_dump(
+            {"name": "default", "checks": [{"checker": "../checkers/score"}]}
+        )
+    )
+
+    post_sweep(get, {"evals": ["first-eval"], "models": ["hosted-a"], "n": 2})
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+    dirs = run_dirs(first)
+    assert len(dirs) == 2
+    for run_dir in dirs:
+        grade = read_yaml(run_dir / "grades" / "default" / "grade.yaml")
+        assert grade["outcome"] == "pass"
+        assert grade["score"] == 1.0
+    cell = job["cells"][cell_key("first-eval", "hosted-a")]
+    assert cell == {
+        "target": 2,
+        "have": 2,
+        "failed": 0,
+        "done": 2,
+        "mean": 1.0,
+        "state": "done",
+    }
+
+
+def test_sweep_grader_override_skip_writes_no_grades(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+
+    post_sweep(
+        get,
+        {
+            "evals": ["first-eval"],
+            "models": ["hosted-a"],
+            "n": 1,
+            "graders": {"first-eval": {"default": "skip"}},
+        },
+    )
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+    assert not any((d / "grades").exists() for d in run_dirs(first))
+
+
+def test_sweep_defers_model_keyed_grader_to_a_final_pass(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", STUB_RUNNER)
+    # The judge pattern: a check carrying a model key defers by default
+    (first / "graders" / "judge.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "judge",
+                "checks": [
+                    {"checker": "contains", "value": "STUB", "model": "gpt-4.1"}
+                ],
+            }
+        )
+    )
+
+    post_sweep(
+        get, {"evals": ["first-eval"], "models": ["hosted-a", "hosted-b"], "n": 1}
+    )
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+    assert job["deferred"] == [
+        {"eval": "first-eval", "grader": "judge", "state": "done"}
+    ]
+
+    dirs = run_dirs(first)
+    assert len(dirs) == 2
+    # Every run (both models) got the judge grade, and every judge grade
+    # postdates every run: one deferred pass after the last model, not
+    # inline grading during each model's phase
+    run_starts = [
+        datetime.fromisoformat(read_yaml(d / "run.yaml")["started"]) for d in dirs
+    ]
+    judge_times = []
+    for run_dir in dirs:
+        grade = read_yaml(run_dir / "grades" / "judge" / "grade.yaml")
+        assert grade["outcome"] == "pass"
+        judge_times.append(datetime.fromisoformat(grade["graded"]))
+        # the inline default grader still graded this run during the sweep
+        assert (run_dir / "grades" / "default" / "grade.yaml").exists()
+    assert min(judge_times) > max(run_starts)
+
+
+def test_sweep_executes_only_the_shortfall(server, fake_lms, tmp_path):
+    # The resumability proof: pre-seeded runs count toward the target, so
+    # the sweep executes only what is missing
+    get, root, first, second = server
+    counter_log = tmp_path / "executions.log"
+    write_executable(first / "run-llm", order_logging_runner(counter_log, "first-eval"))
+    write_run(first / "runs", task="example", model="hosted-a")
+    write_run(first / "runs", task="example", model="hosted-a")
+
+    post_sweep(get, {"evals": ["first-eval"], "models": ["hosted-a"], "n": 3})
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+    assert counter_log.read_text().splitlines() == ["first-eval hosted-a"]
+    cell = job["cells"][cell_key("first-eval", "hosted-a")]
+    assert cell["have"] == 3
+    assert cell["target"] == 3
+    assert cell["done"] == 1
+
+
+def test_sweep_cancel_stops_after_the_in_flight_run(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", SLOW_SWEEP_RUNNER)
+
+    post_sweep(get, {"evals": ["first-eval"], "models": ["hosted-a"], "n": 8})
+    # Wait for the first run to be in flight, then ask for cancellation
+    deadline = time.monotonic() + 10
+    while True:
+        _, _, body = get("/api/sweep")
+        if json.loads(body).get("current"):
+            break
+        assert time.monotonic() < deadline, "sweep never started a run"
+        time.sleep(0.02)
+    status, _, body = get("/api/sweep/cancel", method="POST", body={})
+    assert status == 200
+    assert json.loads(body)["cancel_requested"] is True
+
+    job = wait_sweep(get)
+    assert job["status"] == "cancelled"
+    executed = len(run_dirs(first))
+    assert 1 <= executed < 8
+    # never mid-run: every executed run is complete (run.yaml is written
+    # last, and the last one carries a real exit code)
+    assert all((d / "run.yaml").exists() for d in run_dirs(first))
+
+
+def test_second_sweep_is_409_while_one_is_active(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", SLOW_SWEEP_RUNNER)
+
+    post_sweep(get, {"evals": ["first-eval"], "models": ["hosted-a"], "n": 3})
+    error = post_sweep(
+        get, {"evals": ["second-eval"], "models": ["hosted-b"], "n": 1}, expect=409
+    )
+    assert error["error"] == SWEEP_ACTIVE_MESSAGE
+
+    get("/api/sweep/cancel", method="POST", body={})
+    job = wait_sweep(get)
+    assert job["status"] == "cancelled"
+    # A finished sweep frees the slot for the next one
+    write_executable(second / "run-llm", STUB_RUNNER)
+    post_sweep(get, {"evals": ["second-eval"], "models": ["hosted-b"], "n": 1})
+    assert wait_sweep(get)["status"] == "done"
+
+
+def test_bench_run_and_grade_409_while_sweep_holds_the_eval(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", SLOW_SWEEP_RUNNER)
+    seeded = write_run(first / "runs", task="example", model="pre-seeded")
+
+    post_sweep(get, {"evals": ["first-eval"], "models": ["hosted-a"], "n": 8})
+    saw_run_409 = saw_grade_409 = False
+    deadline = time.monotonic() + 15
+    while not (saw_run_409 and saw_grade_409):
+        assert time.monotonic() < deadline, "never observed the sweep-held 409s"
+        _, _, body = get("/api/sweep")
+        sweep_job = json.loads(body)
+        assert sweep_job["status"] in ("queued", "running"), sweep_job
+        if not sweep_job.get("current"):
+            time.sleep(0.02)
+            continue
+        # The sweep holds first-eval's slot while a run is in flight -
+        # bench actions on that eval must 409 with the spec'd message
+        if not saw_run_409:
+            status, _, body = get(
+                "/api/evals/first-eval/run",
+                method="POST",
+                body={"task": "example", "config": "default", "model": "bench-m"},
+            )
+            if status == 409 and json.loads(body)["error"] == SWEEP_HOLDS_EVAL_MESSAGE:
+                saw_run_409 = True
+        if not saw_grade_409:
+            status, _, body = get(
+                "/api/evals/first-eval/grade",
+                method="POST",
+                body={
+                    "run": str(seeded.relative_to(first / "runs")),
+                    "grader": "default",
+                },
+            )
+            if status == 409 and json.loads(body)["error"] == SWEEP_HOLDS_EVAL_MESSAGE:
+                saw_grade_409 = True
+
+    get("/api/sweep/cancel", method="POST", body={})
+    assert wait_sweep(get)["status"] == "cancelled"
+
+
+def test_sweep_waits_for_an_active_bench_job(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", SLOW_SWEEP_RUNNER)
+
+    status, _, body = get(
+        "/api/evals/first-eval/run",
+        method="POST",
+        body={"task": "example", "config": "default", "model": "bench-m"},
+    )
+    assert status == 202, body
+    bench_job = json.loads(body)
+
+    # The sweep never 409s against a bench job: it waits for the slot
+    post_sweep(get, {"evals": ["first-eval"], "models": ["hosted-a"], "n": 1})
+    job = wait_sweep(get)
+    assert job["status"] == "done", job
+
+    _, _, body = get(f"/api/jobs/{bench_job['id']}")
+    assert json.loads(body)["status"] == "done"
+    # Both the bench run and the sweep's run landed
+    assert len(run_dirs(first)) == 2
+
+
+def test_sweep_failing_runner_marks_the_cell_but_the_sweep_completes(server, fake_lms):
+    get, root, first, second = server
+    write_executable(first / "run-llm", FAILING_RUNNER)
+    write_executable(second / "run-llm", STUB_RUNNER)
+
+    post_sweep(
+        get,
+        {"evals": ["first-eval", "second-eval"], "models": ["hosted-a"], "n": 2},
+    )
+    job = wait_sweep(get)
+    assert job["status"] == "done", job  # a failing pair never halts the sweep
+    failing = job["cells"][cell_key("first-eval", "hosted-a")]
+    assert failing["state"] == "failed"
+    assert failing["failed"] == 2
+    assert failing["have"] == 0
+    healthy = job["cells"][cell_key("second-eval", "hosted-a")]
+    assert healthy["state"] == "done"
+    assert healthy["have"] == 2
+
+
+# --- GET /api/sweep/plan ------------------------------------------------------
+
+
+def test_sweep_plan_previews_shortfall_and_treatments(server):
+    get, root, first, second = server
+    (first / "graders" / "judge.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "judge",
+                "checks": [{"checker": "contains", "value": "x", "model": "gpt-4.1"}],
+            }
+        )
+    )
+    write_run(first / "runs", task="example", model="hosted-a")
+
+    status, ctype, body = get(
+        "/api/sweep/plan?evals=first-eval&models=hosted-a,hosted-b&n=3"
+    )
+    assert status == 200
+    assert ctype == "application/json"
+    plan = json.loads(body)
+    assert plan["cells"] == {
+        cell_key("first-eval", "hosted-a"): {"target": 3, "have": 1, "remaining": 2},
+        cell_key("first-eval", "hosted-b"): {"target": 3, "have": 0, "remaining": 3},
+    }
+    assert plan["graders"] == {"first-eval": {"default": "inline", "judge": "deferred"}}
+    assert plan["n"] == 3
+
+
+def test_sweep_plan_defaults_to_every_eval_without_models(server):
+    get, *_ = server
+    status, _, body = get("/api/sweep/plan")
+    assert status == 200
+    plan = json.loads(body)
+    assert plan["evals"] == ["first-eval", "second-eval"]
+    assert plan["cells"] == {}
+    assert set(plan["graders"]) == {"first-eval", "second-eval"}
+
+
+def test_sweep_plan_unknown_eval_is_400(server):
+    get, *_ = server
+    status, _, body = get("/api/sweep/plan?evals=nope")
+    assert status == 400
+    assert "error" in json.loads(body)
+
+
+def test_sweep_plan_bad_n_is_400(server):
+    get, *_ = server
+    status, _, body = get("/api/sweep/plan?n=zero")
+    assert status == 400
+    assert "error" in json.loads(body)
+
+
+# --- POST /api/sweep validation ----------------------------------------------
+
+
+def test_sweep_post_rejects_bad_specs(server):
+    get, *_ = server
+    for body in (
+        {"models": ["m"], "evals": ["nope"]},
+        {"models": []},
+        {"models": ["m"], "n": 0},
+        {"models": ["m"], "graders": {"first-eval": {"default": "later"}}},
+    ):
+        status, _, reply = get("/api/sweep", method="POST", body=body)
+        assert status == 400, (body, reply)
+        assert "error" in json.loads(reply)
+    # nothing started
+    assert json.loads(get("/api/sweep")[2]) == {"active": False}
+
+
+def test_sweep_cancel_without_a_sweep_is_404(server):
+    get, *_ = server
+    status, _, body = get("/api/sweep/cancel", method="POST", body={})
+    assert status == 404
+    assert "error" in json.loads(body)
+
+
+def test_models_includes_lms_inventory_as_local(server, fake_lms):
+    get, *_ = server
+    status, _, body = get("/api/models")
+    assert status == 200
+    data = json.loads(body)
+    assert data["local"] == ["local-alpha", "local-beta"]
+    assert {"local-alpha", "local-beta", "gpt-4.1-mini"} <= set(data["models"])

@@ -6,6 +6,8 @@ documented subprocess contracts, not internal shortcuts.
 """
 
 import itertools
+import json
+import os
 import sys
 import textwrap
 
@@ -20,6 +22,52 @@ ECHO_RUNNER = """\
 printf 'model=%s\\n' "$SMEVALS_MODEL"
 printf '%s\\n' "${SMEVALS_PROMPT-<no prompt>}"
 """
+
+# A fake `lms` CLI for sweep tests: records every invocation's argv to
+# lms-argv.log beside itself, lists two local models on `ls` (in the real
+# tool's human-oriented column format - there is no machine-readable ls),
+# and fails `load` for the model named in FAKE_LMS_FAIL_LOAD. A real
+# executable honoring the observed CLI surface, never the real LM Studio.
+FAKE_LMS = """\
+import json, os, pathlib, sys
+
+here = pathlib.Path(__file__).resolve().parent
+with (here / "lms-argv.log").open("a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\\n")
+if sys.argv[1:2] == ["ls"]:
+    print("You have 2 models, taking up 21.00 GB of disk space.")
+    print("")
+    print("LLMs (Large Language Models)      PARAMS   ARCHITECTURE   SIZE")
+    print("local-alpha                       27B      qwen3          16.00 GB")
+    print("local-beta                        8B       llama          5.00 GB")
+if sys.argv[1:2] == ["load"] and os.environ.get("FAKE_LMS_FAIL_LOAD") == sys.argv[2]:
+    print("model not found", file=sys.stderr)
+    sys.exit(1)
+"""
+
+
+def lms_calls(log_path):
+    "Every argv the fake lms recorded, in call order"
+    if not log_path.exists():
+        return []
+    return [json.loads(line) for line in log_path.read_text().splitlines()]
+
+
+@pytest.fixture
+def fake_lms(monkeypatch, tmp_path):
+    """A fake `lms` executable first on PATH, plus a redirected HOME so
+    sweep.lms_path can never fall back to a real ~/.lmstudio/bin/lms -
+    sweep tests must NEVER touch the real LM Studio on this machine.
+    Returns the argv log path (see lms_calls).
+    """
+    bin_dir = tmp_path / "fake-lms-bin"
+    bin_dir.mkdir()
+    home = tmp_path / "fake-home"
+    home.mkdir()
+    write_executable(bin_dir / "lms", python_script(FAKE_LMS))
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("HOME", str(home))
+    return bin_dir / "lms-argv.log"
 
 
 def python_script(body):
