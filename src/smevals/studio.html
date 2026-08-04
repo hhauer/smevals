@@ -985,6 +985,55 @@ textarea.raw-text:focus-visible { outline: none; box-shadow: none; border: none;
   color: var(--text-3);
   margin: 0 0 var(--sp-3);
 }
+/* inline image artifacts (blob-fetched through /raw) */
+.art-fig { margin: 0 0 var(--sp-3); }
+.art-cap {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin: 0 0 var(--sp-1);
+  overflow-wrap: anywhere;
+}
+.art-img {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.art-wait {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-style: italic;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+}
+/* long-output ergonomics: wrap toggle + show-all inside a text fold */
+.fold-tools {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  padding: 0 var(--sp-3) var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.fold-tools button {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 9px;
+  cursor: pointer;
+}
+.fold-tools button:hover { color: var(--text); border-color: var(--text-3); }
+.fold pre.nowrap { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+/* run-detail meta links: quiet pivots into the filtered runs list */
+a.meta-link { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
+a.meta-link:hover { color: var(--accent); text-decoration-style: solid; }
 .run-grades { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--line); }
 .rg-label {
   font-family: var(--font-mono);
@@ -1009,6 +1058,22 @@ textarea.raw-text:focus-visible { outline: none; box-shadow: none; border: none;
 .dc-status.skipped { color: var(--text-3); }
 .dc-name { font-family: var(--font-mono); color: var(--text-2); overflow-wrap: anywhere; }
 .dc-score { font-family: var(--font-mono); color: var(--text-3); margin-left: auto; white-space: nowrap; }
+.dc-metric {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  padding-left: var(--sp-4);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.dc-metric .k { color: var(--text-3); }
+.dc-tags {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  padding-left: var(--sp-4);
+  overflow-wrap: anywhere;
+}
 .dc-notes {
   color: var(--text-3);
   margin-top: 1px;
@@ -1145,6 +1210,19 @@ textarea.raw-text:focus-visible { outline: none; box-shadow: none; border: none;
 .lb-score .stderr { color: var(--text-3); font-weight: 400; }
 .lb-empty { font-size: var(--fs-sm); color: var(--text-3); font-style: italic; padding: var(--sp-2) 0; }
 .tagshare-row { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); padding: 3px 0; }
+/* as a button: a tag chip pivots into the runs list filtered to that tag */
+button.tagshare-row {
+  font: inherit;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  color: inherit;
+  cursor: pointer;
+}
+button.tagshare-row:hover { background: var(--surface-2); }
+button.tagshare-row:hover .tagshare-name { color: var(--accent); }
 .tagshare-name { font-family: var(--font-mono); color: var(--text); flex: none; overflow-wrap: anywhere; }
 .tagshare-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .tagshare-bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
@@ -2212,7 +2290,7 @@ async function loadWorkbench(slug) {
     runs: null, runsErr: null, runsPromise: null, runsFilter: null,
     bench: { model: "" }, benchErr: null,
     job: null, drySel: null, dry: null, dryErr: null, dryPending: false,
-    detailsState: {}, runText: {},
+    detailsState: {}, runText: {}, rawCache: {}, textPrefs: {},
     // results tab state (Task 2): the eval_results document for the
     // currently-picked grader, fetched lazily the same way
     results: null, resultsGrader: null, resultsErr: null,
@@ -3018,7 +3096,11 @@ const ENV_CONTRACT = [
 function renderContext(wb) {
   const box = document.getElementById("wb-ctx");
   if (!box) return;
-  if (wb.surface && wb.surface.runs) return renderBenchNote(wb, box);
+  if (wb.surface && wb.surface.runs) {
+    const row = wb.surface.run && wb.runs
+      ? wb.runs.find(r => r.run === wb.surface.run) : null;
+    return row ? renderRunNote(wb, box, row) : renderBenchNote(wb, box);
+  }
   if (wb.surface && wb.surface.results) return renderResultsNote(wb, box);
   const buf = wb.open && wb.buffers.get(wb.open);
   const kind = buf ? pure.docKind(buf.path) : null;
@@ -3084,6 +3166,8 @@ function renderTaskMirror(wb, buf, box) {
          Runner subprocess — the task's own fields carry their env vars
          inline, to the left; every other scalar key becomes
          <code>SMEVALS_TASK_&lt;KEY&gt;</code>.</p>
+      <p><a href="${runsFilterHash(wb, { task: fileStem(buf.path) })}">runs
+         of this task →</a></p>
     </div>
     ${benchRunHtml(wb, buf)}`;
   bindBenchRun(wb, buf, box);
@@ -3191,10 +3275,14 @@ function renderConfigContext(wb, buf, box) {
 
 const runsHash = wb => `#/eval/${enc(wb.slug)}/runs`;
 const runHash = (wb, run) => `#/eval/${enc(wb.slug)}/runs/${enc(run)}`;
-const runsFilterHash = (wb, config, model) => {
+// filter: any of { task, config, model, tag, grader } - the runs list
+// narrows to rows matching every part (grader scopes the tag lookup)
+const FILTER_KEYS = ["task", "config", "model", "tag", "grader"];
+const runsFilterHash = (wb, filter) => {
   const params = new URLSearchParams();
-  if (config) params.set("config", config);
-  if (model) params.set("model", model);
+  for (const key of FILTER_KEYS) {
+    if (filter && filter[key]) params.set(key, filter[key]);
+  }
   const q = params.toString();
   return runsHash(wb) + (q ? `?${q}` : "");
 };
@@ -3258,15 +3346,46 @@ const gradeChip = (name, g, bare = false) => {
 
 // --- run artifacts: cached file reads + collapsible sections ---------------
 
-function ensureRunFile(wb, run, name) {
-  const key = `${run}/${name}`;
-  if (wb.runText[key] !== undefined) return wb.runText[key];
-  wb.runText[key] = null; // loading
-  api(`/api/evals/${enc(wb.slug)}/file?path=${enc(`runs/${run}/${name}`)}`)
-    .then(data => { wb.runText[key] = data.content; })
-    .catch(ex => { wb.runText[key] = `(couldn't read ${name}: ${ex.message})`; })
+function ensureFileText(wb, rel) {
+  if (wb.runText[rel] !== undefined) return wb.runText[rel];
+  wb.runText[rel] = null; // loading
+  api(`/api/evals/${enc(wb.slug)}/file?path=${enc(rel)}`)
+    .then(data => { wb.runText[rel] = data.content; })
+    .catch(ex => { wb.runText[rel] = `(couldn't read ${rel}: ${ex.message})`; })
     .finally(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
   return null;
+}
+
+// Inline images ride the binary-safe /raw endpoint. An <img src> cannot
+// carry the X-Studio-Key header, so the bytes are fetched with it and
+// handed to the tag as an object URL, cached per workbench.
+function ensureRawBlob(wb, rel) {
+  const cached = wb.rawCache[rel];
+  if (cached !== undefined) return cached;
+  wb.rawCache[rel] = null; // loading
+  fetch(`/api/evals/${enc(wb.slug)}/raw?path=${enc(rel)}`,
+        { headers: { "X-Studio-Key": studioKey() } })
+    .then(async response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const url = URL.createObjectURL(await response.blob());
+      wb.rawCache[rel] = { url };
+    })
+    .catch(ex => { wb.rawCache[rel] = { err: ex.message }; })
+    .finally(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+  return null;
+}
+
+// Save-to-disk for artifacts that neither render inline nor read as text
+async function downloadRaw(wb, rel, name) {
+  const response = await fetch(`/api/evals/${enc(wb.slug)}/raw?path=${enc(rel)}`,
+    { headers: { "X-Studio-Key": studioKey() } });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // <details> open state survives rerenders via wb.detailsState
@@ -3285,24 +3404,109 @@ function bindFolds(wb, container) {
     }));
 }
 
-// output.txt + stderr + artifacts for one run row, in ctx or run-detail size
-function runBodyHtml(wb, row, keyPrefix) {
+// One text file as a fold: a wrap toggle plus a 20k-char cap with show-all,
+// so a huge output stays navigable. Prefs survive rerenders on wb.textPrefs.
+const TEXT_CAP = 20000;
+
+function textFoldHtml(wb, key, label, rel, defaultOpen) {
+  const text = ensureFileText(wb, rel);
+  if (text === null) {
+    return foldHtml(wb, key, label,
+      `<div class="fold-loading">Loading…</div>`, defaultOpen);
+  }
+  const prefs = wb.textPrefs[key] || {};
+  const wrap = prefs.wrap !== false;
+  const truncated = !prefs.full && text.length > TEXT_CAP;
+  const body = `
+    <div class="fold-tools">
+      <button type="button" data-wrap="${esc(key)}">wrap: ${
+        wrap ? "on" : "off"}</button>
+      ${truncated ? `<button type="button" data-full="${esc(key)}">show all
+        (${text.length.toLocaleString()} chars)</button>` : ""}
+    </div>
+    <pre${wrap ? "" : ` class="nowrap"`}>${
+      esc(truncated ? text.slice(0, TEXT_CAP) : text) || "(empty)"}${
+      truncated ? "\n… truncated" : ""}</pre>`;
+  return foldHtml(wb, key, label, body, defaultOpen);
+}
+
+function bindFoldTools(wb, container) {
+  container.querySelectorAll(".fold-tools [data-wrap]").forEach(el =>
+    el.addEventListener("click", () => {
+      const prefs = wb.textPrefs[el.dataset.wrap] ||= {};
+      prefs.wrap = prefs.wrap === false;
+      renderBenchSurfaces(wb);
+    }));
+  container.querySelectorAll(".fold-tools [data-full]").forEach(el =>
+    el.addEventListener("click", () => {
+      (wb.textPrefs[el.dataset.full] ||= {}).full = true;
+      renderBenchSurfaces(wb);
+    }));
+}
+
+const IMAGE = /\.(png|svg|jpe?g|gif|webp)$/i;
+const TEXTLIKE = /\.(txt|log|md|json|ya?ml|csv|tsv|xml|html?|py|js|ts|sh|diff|patch)$/i;
+
+// Every artifact one run (or grade) directory holds: images inline, text
+// as folds, anything else as a download. base is run-relative ("" or
+// "grades/<name>/"); names as collect_eval lists them.
+function artifactsHtml(wb, row, keyPrefix, base, names) {
+  const rel = name => `runs/${row.run}/${base}${name}`;
+  const images = names.filter(f => IMAGE.test(f));
+  const texts = names.filter(f => !IMAGE.test(f) && TEXTLIKE.test(f));
+  const others = names.filter(f => !IMAGE.test(f) && !TEXTLIKE.test(f));
+  const imgHtml = name => {
+    const blob = ensureRawBlob(wb, rel(name));
+    return `
+      <figure class="art-fig">
+        <figcaption class="art-cap">${esc(base + name)}</figcaption>
+        ${blob === null
+          ? `<div class="art-wait">loading ${esc(name)}…</div>`
+          : blob.err
+            ? `<div class="art-wait">couldn't load ${esc(name)}: ${esc(blob.err)}</div>`
+            : `<img class="art-img" src="${esc(blob.url)}" alt="${esc(base + name)}">`}
+      </figure>`;
+  };
+  return `
+    ${images.map(imgHtml).join("")}
+    ${texts.map(name => textFoldHtml(wb, `${keyPrefix}:${row.run}:${base}${name}`,
+      base + name, rel(name), false)).join("")}
+    ${others.length ? `
+      <div class="art-line">artifacts:
+        ${others.map(name => `<button type="button" class="btn btn-sm btn-ghost"
+          data-dl="${esc(rel(name))}" data-dl-name="${esc(name)}"
+          title="${esc(`download ${name}`)}">${esc(name)} ↓</button>`).join(" ")}
+      </div>` : ""}`;
+}
+
+function bindArtifacts(wb, container) {
+  container.querySelectorAll("[data-dl]").forEach(el =>
+    el.addEventListener("click", async () => {
+      el.disabled = true;
+      try {
+        await downloadRaw(wb, el.dataset.dl, el.dataset.dlName);
+      } catch (ex) {
+        el.textContent = `${el.dataset.dlName}: ${ex.message}`;
+      }
+      el.disabled = false;
+    }));
+  bindFoldTools(wb, container);
+}
+
+// output.txt + stderr + artifacts for one run row, in ctx or run-detail size;
+// runYaml adds the recorded run.yaml (the run detail's provenance fold)
+function runBodyHtml(wb, row, keyPrefix, { runYaml = false } = {}) {
   const files = row.files || [];
   const artifacts = files.filter(
     f => !["output.txt", "stderr.txt", "run.yaml"].includes(f));
-  const foldFile = (name, defaultOpen) => {
-    const text = ensureRunFile(wb, row.run, name);
-    return foldHtml(wb, `${keyPrefix}:${row.run}:${name}`, name,
-      text === null ? `<div class="fold-loading">Loading…</div>`
-                    : `<pre>${esc(text)}</pre>`,
-      defaultOpen);
-  };
+  const foldFile = (name, defaultOpen) => textFoldHtml(
+    wb, `${keyPrefix}:${row.run}:${name}`, name,
+    `runs/${row.run}/${name}`, defaultOpen);
   return `
     ${foldFile("output.txt", true)}
     ${files.includes("stderr.txt") ? foldFile("stderr.txt", false) : ""}
-    ${artifacts.length ? `
-      <div class="art-line">artifacts:
-        ${artifacts.map(a => `<code>${esc(a)}</code>`).join(" ")}</div>` : ""}`;
+    ${artifactsHtml(wb, row, keyPrefix, "", artifacts)}
+    ${runYaml ? foldFile("run.yaml", false) : ""}`;
 }
 
 // --- runs surfaces (middle pane) -------------------------------------------
@@ -3337,11 +3541,31 @@ function runRowHtml(row) {
     </button>`;
 }
 
+// True when any of the row's grades (scoped to one grader when given)
+// carries the tag - the Results tab's tag chips pivot through this
+function rowHasTag(row, tag, grader) {
+  const grades = row.grades || {};
+  const pool = grader ? [grades[grader]] : Object.values(grades);
+  return pool.some(g => g && (g.tags || []).includes(tag));
+}
+
+function filterPartsHtml(f) {
+  return [
+    f.task && `task <b>${esc(f.task)}</b>`,
+    f.config && `config <b>${esc(f.config)}</b>`,
+    f.model && `model <b>${esc(f.model)}</b>`,
+    f.tag && `tagged <b>#${esc(f.tag)}</b>${
+      f.grader ? ` under <b>${esc(f.grader)}</b>` : ""}`,
+  ].filter(Boolean).join(" · ");
+}
+
 function renderRunsList(wb, box) {
   const filter = wb.runsFilter;
   const rows = filter
     ? wb.runs.filter(r => (!filter.config || r.config === filter.config)
-        && (!filter.model || r.model === filter.model))
+        && (!filter.model || r.model === filter.model)
+        && (!filter.task || r.task === filter.task)
+        && (!filter.tag || rowHasTag(r, filter.tag, filter.grader)))
     : wb.runs;
   box.innerHTML = `
     <div class="ed-head">
@@ -3351,9 +3575,7 @@ function renderRunsList(wb, box) {
           filter ? ` of ${wb.runs.length}` : ""}</span></span>
     </div>
     ${filter ? `
-      <div class="runs-filter">showing
-        <b>${esc(filter.config || "any config")}</b> ·
-        <b>${esc(filter.model || "any model")}</b> — from the Results leaderboard
+      <div class="runs-filter">showing ${filterPartsHtml(filter)}
         <a href="${runsHash(wb)}">clear filter</a>
       </div>` : ""}
     ${wb.runsErr ? `<div class="ed-err">${errorBox(wb.runsErr)}</div>` : ""}
@@ -3387,6 +3609,12 @@ function renderRunDetail(wb, box) {
       <div class="ed-err">${errorBox(`No such run: ${wb.surface.run}`)}</div>`;
     return;
   }
+  // task/config/model pivot into the runs list filtered to their value -
+  // the task link is Studio's per-task view
+  const metaLink = (key, value) => value
+    ? `<a class="meta-link" href="${runsFilterHash(wb, { [key]: value })}"
+         title="${esc(`all runs with this ${key}`)}">${esc(value)}</a>`
+    : `<span>?</span>`;
   box.innerHTML = `
     <div class="ed-head">
       <span class="ed-path"><a href="${runsHash(wb)}">runs</a> /&nbsp;${esc(row.run)}</span>
@@ -3394,21 +3622,24 @@ function renderRunDetail(wb, box) {
     <div class="run-view">
       <div class="run-meta">
         <span class="ok-dot${runOk(row) ? "" : " bad"}"></span>
-        <span>${esc(row.task ?? "?")}</span><span class="sep">·</span>
-        <span>${esc(row.config ?? "?")}</span><span class="sep">·</span>
-        <span>${esc(row.model ?? "?")}</span><span class="sep">·</span>
+        ${metaLink("task", row.task)}<span class="sep">·</span>
+        ${metaLink("config", row.config)}<span class="sep">·</span>
+        ${metaLink("model", row.model)}<span class="sep">·</span>
         <span title="${esc(row.started || "")}">${
           row.started ? esc(ago(row.started)) : "—"}</span>
         ${row.duration != null ? `<span class="sep">·</span>
           <span>${esc(fmtDuration(row.duration))}</span>` : ""}
+        ${row.imported_from ? `<span class="sep">·</span>
+          <span title="${esc(row.imported_from)}">imported</span>` : ""}
         ${runOk(row) ? "" : `<span class="sep">·</span>
           <span style="color: var(--fail)">exit ${esc(String(row.exit_code))}</span>`}
       </div>
-      ${runBodyHtml(wb, row, "run")}
+      ${runBodyHtml(wb, row, "run", { runYaml: true })}
       ${runGradesHtml(wb, row)}
     </div>`;
   bindFolds(wb, box);
   bindGradeButtons(wb, box);
+  bindArtifacts(wb, box);
 }
 
 function runGradesHtml(wb, row) {
@@ -3438,7 +3669,10 @@ function runGradesHtml(wb, row) {
               ${checks.map(c => dryCellHtml(checkView(c), null, false)).join("")}
               ${(g.tags || []).length ? `<div class="dry-tags">${
                 esc(g.tags.map(t => "#" + t).join(" "))}</div>` : ""}
-            </div>`, false) : ""}
+            </div>`, true) : ""}
+          ${g && (g.files || []).length
+            ? artifactsHtml(wb, row, `run:g:${name}`, `grades/${name}/`, g.files)
+            : ""}
           <div data-grade-err="${esc(name)}"></div>`;
       }).join("") : `<p class="rg-note">No graders in this eval yet — add
         one under graders/ and it can score this run.</p>`}
@@ -3491,6 +3725,34 @@ function renderBenchNote(wb, box) {
          with your unsaved text and shows the difference next to the saved
          grade, writing nothing under runs/.</p>
     </div>`;
+}
+
+// --- context: one run open (the run detail's companion) ---------------------
+//
+// What serve's run page put beside the output: the task being attempted.
+// The task file is the eval's current definition; the run's own run.yaml
+// fold (left) records the exact fields the Runner received.
+function renderRunNote(wb, box, row) {
+  const taskPath = `tasks/${row.task}.yaml`;
+  const hasTask = row.task && flatFiles(wb).some(f => f.path === taskPath);
+  box.innerHTML = `
+    <p class="ctx-eyebrow">This run's task</p>
+    <p class="ctx-sub">${esc(row.task ?? "unknown task")}</p>
+    ${hasTask
+      ? textFoldHtml(wb, `ctx:task:${taskPath}`, taskPath, taskPath, true)
+      : `<div class="ctx-note"><p>No <code>${esc(taskPath)}</code> in this
+           eval today — the run.yaml fold on the left records the task as
+           the Runner received it.</p></div>`}
+    <div class="ctx-note">
+      ${hasTask ? `<p><a href="${fileHash(wb, taskPath, false)}">open the
+        task in the editor →</a></p>` : ""}
+      ${row.task ? `<p><a href="${runsFilterHash(wb, { task: row.task })}">all
+        runs of this task →</a></p>` : ""}
+      <p>Grade or regrade with any grader from the panel on the left; a
+         grade never changes the run itself.</p>
+    </div>`;
+  bindFolds(wb, box);
+  bindFoldTools(wb, box);
 }
 
 // --- context: Run this task ------------------------------------------------
@@ -3626,6 +3888,7 @@ function bindBenchRun(wb, buf, box) {
     el.addEventListener("click", () =>
       doGrade(wb, el.dataset.run, el.dataset.grade, gradeErr, el)));
   bindFolds(wb, box);
+  bindArtifacts(wb, box);
 }
 
 async function startRun(wb, buf) {
@@ -3765,14 +4028,26 @@ function checkView(c) {
     status: c.skipped ? "skipped" : c.ok ? "ok" : "fail",
     score: c.score ?? null,
     notes: typeof c.notes === "string" ? c.notes : "",
+    metrics: c.metrics && typeof c.metrics === "object" ? c.metrics : {},
+    details: c.details && typeof c.details === "object" ? c.details : {},
+    tags: Array.isArray(c.tags) ? c.tags : [],
   };
 }
+
+// details values may nest; scalars read bare, anything else as JSON
+const detailValue = v =>
+  v === null || ["string", "number", "boolean"].includes(typeof v)
+    ? String(v) : JSON.stringify(v);
 
 // One check as a comparison cell; when compared, values differing from
 // the other side get the accent wash
 function dryCellHtml(v, other, compared) {
   if (!v) return `<div class="dc dry-empty-cell">no check here</div>`;
   const chg = f => compared && (!other || other[f] !== v[f]) ? " chg" : "";
+  // metrics and tags are structured, so difference is by value, not identity
+  const chgDeep = f => compared
+    && (!other || JSON.stringify(other[f]) !== JSON.stringify(v[f]))
+    ? " chg" : "";
   const scoreHtml = v.score !== null
     ? `<span class="dc-score${chg("score")}">score ${esc(String(v.score))}</span>`
     : compared && other && other.score !== null
@@ -3787,6 +4062,14 @@ function dryCellHtml(v, other, compared) {
       ${v.notes ? `<div class="dc-notes${chg("notes")}">${esc(v.notes)}</div>`
         : compared && other && other.notes
           ? `<div class="dc-notes chg">(no notes)</div>` : ""}
+      ${Object.entries(v.metrics).map(([k, m]) => `
+        <div class="dc-metric${chgDeep("metrics")}">
+          <span class="k">${esc(k)}:</span> ${esc(String(m))}</div>`).join("")}
+      ${Object.entries(v.details).map(([k, d]) => `
+        <div class="dc-metric${chgDeep("details")}">
+          <span class="k">${esc(k)}:</span> ${esc(detailValue(d))}</div>`).join("")}
+      ${v.tags.length ? `<div class="dc-tags${chgDeep("tags")}">${
+        esc(v.tags.map(t => "#" + t).join(" "))}</div>` : ""}
     </div>`;
 }
 
@@ -3924,11 +4207,12 @@ function tagSharesHtml(tags, total) {
   return entries.map(([tag, n]) => {
     const pct = total ? Math.round(n / total * 100) : 0;
     return `
-      <div class="tagshare-row">
+      <button type="button" class="tagshare-row" data-tag="${esc(tag)}"
+              title="${esc(`show runs tagged #${tag}`)}">
         <span class="tagshare-name">#${esc(tag)}</span>
         <span class="tagshare-bar"><div style="width:${pct}%"></div></span>
         <span class="tagshare-pct">${n}/${total} (${pct}%)</span>
-      </div>`;
+      </button>`;
   }).join("");
 }
 
@@ -4021,8 +4305,16 @@ function renderResultsPane(wb) {
         </div>
       </div>`}`;
   box.querySelectorAll(".lb-row").forEach(el => el.addEventListener("click", () => {
-    location.hash = runsFilterHash(wb, el.dataset.config || null, el.dataset.model || null);
+    location.hash = runsFilterHash(wb,
+      { config: el.dataset.config, model: el.dataset.model });
   }));
+  // A tag chip pivots into the runs list, scoped to the grader it was
+  // counted under - the runs surface shows which rows carry the tag
+  box.querySelectorAll(".tagshare-row[data-tag]").forEach(el =>
+    el.addEventListener("click", () => {
+      location.hash = runsFilterHash(wb,
+        { tag: el.dataset.tag, grader: r.grader });
+    }));
   const graderSel = box.querySelector("#results-grader");
   if (graderSel) graderSel.addEventListener("change", () => {
     wb.resultsGrader = graderSel.value;
@@ -4809,12 +5101,14 @@ function route() {
     }
     if (m[4]) {
       const params = new URLSearchParams(hashQuery || "");
-      const config = params.get("config");
-      const model = params.get("model");
+      const filter = {};
+      for (const key of FILTER_KEYS) {
+        if (params.get(key)) filter[key] = params.get(key);
+      }
       return renderWorkbench(slug, {
         runs: true,
         run: m[5] ? decodeURIComponent(m[5]) : null,
-        filter: config || model ? { config, model } : null,
+        filter: Object.keys(filter).length ? filter : null,
       });
     }
     return renderWorkbench(slug,

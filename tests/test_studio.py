@@ -246,6 +246,29 @@ def test_studio_html_wires_sweep_routes():
     assert "stops after the current run" in html
 
 
+def test_studio_html_wires_run_exploration():
+    """Task 7: the run views' rich exploration is wired to the read APIs -
+    inline artifacts ride the binary-safe /raw endpoint (blob-fetched, since
+    an <img src> cannot carry the X-Studio-Key header), and the Results
+    tab's tag chips pivot into the runs list through the generalized
+    filter."""
+    html = studio.studio_html()
+
+    # inline artifacts: the raw endpoint, fetched with the key, as blobs
+    assert "/api/evals/${enc(wb.slug)}/raw?path=" in html
+    assert "URL.createObjectURL" in html
+
+    # the runs filter carries task and tag pivots alongside config/model
+    for key in ("task", "config", "model", "tag", "grader"):
+        assert f'"{key}"' in html
+    assert "runsFilterHash" in html
+    assert "data-tag" in html
+
+    # long-output ergonomics: wrap toggle + show-all cap on text folds
+    assert "data-wrap" in html
+    assert "data-full" in html
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 
