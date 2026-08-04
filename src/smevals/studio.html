@@ -608,6 +608,7 @@ select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0
   padding: 1px 7px;
 }
 .check-head select { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); }
+.check-head .ff-env { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; }
 .check-tools { display: inline-flex; gap: 2px; }
 .check-tools button {
   font: inherit;
@@ -2590,7 +2591,8 @@ function checksEditor(wb, buf, checks, probs) {
         <div class="check-head">
           <span class="check-n">${i + 1}</span>
           ${ok ? `<select data-checker="${i}" aria-label="Checker">
-                    ${checkerOptions(wb, checker)}</select>`
+                    ${checkerOptions(wb, checker)}</select>
+                  ${envTagHtml(pure.scalarEnvKey("SMEVALS_CHECK_", "checker"))}`
                : `<span class="ff-complex">not a map — edit in Raw view</span>`}
           <span class="check-tools">
             <button type="button" data-act="move" data-i="${i}" data-d="-1"
