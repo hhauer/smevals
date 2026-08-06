@@ -389,6 +389,56 @@ def test_studio_html_read_surfaces_poll_continuously_outside_sweeps():
     assert "renderEditor" not in bench_surfaces_body
 
 
+def test_studio_html_results_tab_recent_grades_feed():
+    """Batch 2 item 5a: a compact "recently graded" list on the Results
+    tab, below the leaderboard - parity with the old dashboard's grading-
+    time feed (app.html:318-332), sorted by when a grade landed
+    (grade.yaml's "graded" timestamp, distinct from a run's start time).
+    Reads wb.runs - the same rail the runs list/Compare already ride,
+    since collect_eval's rows already carry each grade's "graded" field
+    (site.py:78) - so no new endpoint. Links each row to its run via the
+    existing runHash; esc()'d task/model text; a teaching empty state when
+    nothing is graded yet."""
+    html = studio.studio_html()
+    assert "function recentGradedHtml" in html
+    body = html.split("function recentGradedHtml")[1].split("\n}\n", 1)[0]
+    assert "grade.graded" in body
+    assert "runHash(wb, row.run)" in body
+    assert "esc(row.task" in body
+    assert "esc(row.model" in body
+    assert "No graded runs yet" in body
+
+    pane = html.split("function renderResultsPane")[1].split("\n}\n", 1)[0]
+    assert "Recently graded" in pane
+    assert "recentGradedHtml(wb, wb.runs, r.grader)" in pane
+    # sits below the leaderboard, per the brief
+    assert pane.index("Leaderboard") < pane.index("Recently graded")
+    # wb.runs is fetched lazily like the other bench surfaces, without
+    # blocking the rest of the tab from rendering
+    assert "ensureRuns(wb)" in pane
+
+
+def test_studio_html_runs_list_recent_grades_sort():
+    """Batch 2 item 5b: the runs list gains a sort control with a
+    "recently graded" option, alongside its existing task/config/model/tag
+    filter affordances - reordering by the most recent grade any grader
+    landed on each row (a run can carry grades from several graders, so
+    this isn't scoped to a single one the way the Results tab's grader-
+    scoped feed is). Defaults to the existing newest-run-first order."""
+    html = studio.studio_html()
+    assert 'id="runs-sort"' in html
+    assert "recently graded" in html
+    assert "function latestGraded" in html
+
+    init = html.split("async function loadWorkbench")[1].split("\n}\n", 1)[0]
+    assert 'runsSort: "started"' in init
+
+    pane = html.split("function renderRunsList")[1].split("\n}\n", 1)[0]
+    assert 'wb.runsSort === "graded"' in pane
+    assert "latestGraded" in pane
+    assert "wb.runsSort = ev.target.value" in pane
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 

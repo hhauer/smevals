@@ -1244,6 +1244,19 @@ button.tagshare-row:hover .tagshare-name { color: var(--accent); }
 .tagshare-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .tagshare-bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
 .tagshare-pct { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); width: 74px; text-align: right; flex: none; }
+/* Recently graded (Batch 2 item 5a): a compact link row, one per grade */
+.feed-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+.feed-list .feed-row:last-child { border-bottom-color: transparent; }
+.feed-row:hover { background: var(--surface-2); }
+.feed-when { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); flex: none; width: 60px; }
+.feed-what { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .metric-row { display: flex; gap: var(--sp-2); padding: 2px 0; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .metric-row .k { width: 150px; flex: none; color: var(--text-3); overflow-wrap: anywhere; }
 .metric-row .v { color: var(--text-2); }
@@ -2478,6 +2491,7 @@ async function loadWorkbench(slug) {
     // stays null (unfetched) until the first surface that needs rows calls
     // ensureRuns - see below; runsPromise is its single-flight lock.
     runs: null, runsErr: null, runsPromise: null, runsFilter: null,
+    runsSort: "started",
     bench: { model: "" }, benchErr: null,
     job: null, drySel: null, dry: null, dryErr: null, dryPending: false,
     detailsState: {}, runText: {}, rawCache: {}, textPrefs: {},
@@ -3513,6 +3527,15 @@ const runOk = row => !(row.exit_code ?? 0);
 const fmtDuration = s => s == null ? "" :
   s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`
           : `${Number(s).toFixed(1)}s`;
+// The most recent grading timestamp across every grader on a row (unlike
+// the Results tab's grader-scoped feed, the runs list shows grades from
+// every grader at once, so its "recently graded" sort isn't scoped to
+// one either); "" for an ungraded row, sorting it last.
+function latestGraded(row) {
+  const stamps = Object.values(row.grades || {})
+    .map(g => g.graded).filter(Boolean);
+  return stamps.length ? stamps.sort().at(-1) : "";
+}
 
 // The eval's Runs, fetched lazily and only once: the runs list/detail, the
 // dry-run picker, and the bench's latest-run panel each call this before
@@ -3781,18 +3804,28 @@ function filterPartsHtml(f) {
 
 function renderRunsList(wb, box) {
   const filter = wb.runsFilter;
-  const rows = filter
+  let rows = filter
     ? wb.runs.filter(r => (!filter.config || r.config === filter.config)
         && (!filter.model || r.model === filter.model)
         && (!filter.task || r.task === filter.task)
         && (!filter.tag || rowHasTag(r, filter.tag, filter.grader)))
     : wb.runs;
+  // "recently graded" (Batch 2 item 5b): a reorder, not a filter - ungraded
+  // rows stay in the list, sorted last (latestGraded returns "" for them)
+  if (wb.runsSort === "graded") {
+    rows = [...rows].sort((a, b) => latestGraded(b).localeCompare(latestGraded(a)));
+  }
   box.innerHTML = `
     <div class="ed-head">
       <span class="ed-path">runs</span>
       <span class="ed-actions">
         <span class="bench-hint">${esc(plural(rows.length, "run"))}${
           filter ? ` of ${wb.runs.length}` : ""}</span>
+        <label class="bench-hint" for="runs-sort">sort</label>
+        <select id="runs-sort">
+          <option value="started" ${wb.runsSort === "graded" ? "" : "selected"}>newest run</option>
+          <option value="graded" ${wb.runsSort === "graded" ? "selected" : ""}>recently graded</option>
+        </select>
         <a href="${compareHash(wb, filter && filter.task)}">compare outputs →</a>
       </span>
     </div>
@@ -3815,6 +3848,10 @@ function renderRunsList(wb, box) {
              right, or from a terminal:
              <code>smevals run . -t &lt;task&gt;</code>.</p>
         </div>`}`;
+  box.querySelector("#runs-sort")?.addEventListener("change", ev => {
+    wb.runsSort = ev.target.value;
+    renderRunsList(wb, box);
+  });
   box.querySelectorAll(".run-row").forEach(el =>
     el.addEventListener("click", () => {
       location.hash = runHash(wb, el.dataset.run);
@@ -4733,6 +4770,30 @@ function tagSharesHtml(tags, total) {
   }).join("");
 }
 
+// Recently graded (Batch 2 item 5a): the last 10 grades under the active
+// grader, newest-graded-first - distinct from a run's start time, and
+// parity with the old dashboard's grading-time feed (app.html:318-332).
+// Reads wb.runs (the same rail the runs list/Compare already ride)
+// rather than a new endpoint - collect_eval's rows already carry each
+// grade's "graded" timestamp (site.py:78).
+function recentGradedHtml(wb, rows, grader) {
+  const graded = rows
+    .map(row => ({ row, grade: (row.grades || {})[grader] }))
+    .filter(x => x.grade && x.grade.graded)
+    .sort((a, b) => b.grade.graded.localeCompare(a.grade.graded))
+    .slice(0, 10);
+  if (!graded.length) {
+    return `<div class="lb-empty">No graded runs yet under this grader —
+      grade a run from its page to see it here.</div>`;
+  }
+  return `<div class="feed-list">${graded.map(({ row, grade }) => `
+    <a class="feed-row" href="${runHash(wb, row.run)}">
+      <span class="feed-when" title="${esc(grade.graded)}">${esc(ago(grade.graded))}</span>
+      <span class="feed-what">${esc(row.task ?? "?")} · ${esc(row.model ?? "?")}</span>
+      ${gradeChip(grader, grade, true)}
+    </a>`).join("")}</div>`;
+}
+
 function metricRowsHtml(metrics) {
   const keys = Object.keys(metrics || {}).sort();
   if (!keys.length) return `<div class="lb-empty">No metrics recorded.</div>`;
@@ -4784,6 +4845,13 @@ function renderResultsPane(wb) {
   }
   const r = wb.results;
   const graders = r.graders || [];
+  // The "recently graded" feed below reads wb.runs, fetched lazily like
+  // every other bench surface - loading in the background rather than
+  // blocking the rest of the tab (the leaderboard/tags/metrics above
+  // don't need it).
+  if (wb.runs === null) {
+    ensureRuns(wb).then(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+  }
   box.innerHTML = `
     <div class="ed-head">
       <span class="ed-path">results</span>
@@ -4812,6 +4880,12 @@ function renderResultsPane(wb) {
         <div class="results-section">
           <h3>Leaderboard</h3>
           ${leaderboardHtml(r.groups)}
+        </div>
+        <div class="results-section">
+          <h3>Recently graded</h3>
+          ${wb.runs === null
+            ? `<div class="lb-empty">Loading…</div>`
+            : recentGradedHtml(wb, wb.runs, r.grader)}
         </div>
         <div class="results-section">
           <h3>Tags</h3>
