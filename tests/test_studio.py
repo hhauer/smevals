@@ -305,6 +305,25 @@ def test_studio_html_wires_compare_view():
     assert html.count("compare outputs") >= 3
 
 
+def test_studio_html_shelf_card_shows_run_totals():
+    """Batch 1 item 1: shelf cards show run/graded/fail counts - parity with
+    the old dashboard's "<b>N</b> runs · <b>M</b> graded" line (app.html:
+    230-236) - built from the runs totals studio.py's eval_summary already
+    computed plus the graded count added alongside them, in the card's
+    existing counts style; the fail count shows only when nonzero, reusing
+    the sweep ledger's existing fail styling rather than inventing a new one."""
+    html = studio.studio_html()
+    assert "function runsFactsHtml" in html
+    assert "e.runs?.total" in html
+    assert "e.runs?.graded" in html
+    assert "e.runs?.failed" in html
+    assert "sw-failn" in html
+
+    # rendered on every card, and kept live during the shelf's poll-tick
+    # patch alongside card-results/lastrun (not just on a full render)
+    assert html.count("runsFactsHtml(e)") >= 2
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 
@@ -404,8 +423,31 @@ def test_discovery_reports_runs_counts(server):
     write_run(first / "runs", model="m-1", exit_code=1, output="")
 
     entries = {e["slug"]: e for e in json.loads(get("/api/evals")[2])}
-    assert entries["first-eval"]["runs"] == {"total": 2, "failed": 1}
-    assert entries["second-eval"]["runs"] == {"total": 0, "failed": 0}
+    assert entries["first-eval"]["runs"] == {"total": 2, "failed": 1, "graded": 1}
+    assert entries["second-eval"]["runs"] == {"total": 0, "failed": 0, "graded": 0}
+
+
+def test_discovery_reports_graded_count_under_default_grader(server):
+    # Batch 1 item 1: the shelf card's "graded" count - a run graded under
+    # a NON-default grader must not inflate it (parity with app.html's
+    # facts line, which is scoped to the default grader like site.eval_summary)
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    second_grader_doc = {
+        "name": "second",
+        "checks": [{"checker": "contains", "value": "x"}],
+    }
+    (first / "graders" / "second.yaml").write_text(yaml.safe_dump(second_grader_doc))
+    write_grade(write_run(first / "runs", model="m-1"), grader_doc, score=1.0)
+    write_grade(
+        write_run(first / "runs", model="m-2"),
+        second_grader_doc,
+        grader="second",
+        score=1.0,
+    )
+
+    entries = {e["slug"]: e for e in json.loads(get("/api/evals")[2])}
+    assert entries["first-eval"]["runs"]["graded"] == 1
 
 
 def test_discovery_reports_best_from_default_grader(server):

@@ -209,6 +209,14 @@ a.card:hover, a.card:focus-visible {
   white-space: nowrap;
 }
 .card-foot b { font-weight: 600; color: var(--text-2); }
+.card-runs {
+  margin-top: var(--sp-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.card-runs b { font-weight: 600; color: var(--text-2); }
 .lastrun { display: inline-flex; align-items: center; gap: 6px; }
 .lastrun .dot {
   width: 6px;
@@ -1665,6 +1673,19 @@ function resultsStripHtml(e) {
       esc(fmtScore(e.best.score))}</span> · ${esc(e.best.model)} (${esc(e.best.config)})</div>`;
 }
 
+// Run/graded/fail totals - parity with the old dashboard's card facts
+// (app.html:230-236). The fail count reuses the sweep ledger's existing
+// fail styling and shows only when nonzero, same rule as resultsStripHtml.
+function runsFactsHtml(e) {
+  const total = e.runs?.total ?? 0;
+  const graded = e.runs?.graded ?? 0;
+  const failed = e.runs?.failed ?? 0;
+  return `
+    <div class="card-runs"><b>${total}</b> run${total === 1 ? "" : "s"} · <b>${
+      graded}</b> graded${failed
+        ? ` · <span class="sw-failn">${esc(plural(failed, "fail"))}</span>` : ""}</div>`;
+}
+
 function cardHtml(e) {
   const counts = ["tasks", "configs", "graders"]
     .map(k => {
@@ -1693,6 +1714,7 @@ function cardHtml(e) {
         <span>${counts}</span>
         <span class="lastrun">${run}</span>
       </div>
+      ${runsFactsHtml(e)}
       ${resultsStripHtml(e)}
     </a>`;
 }
@@ -1791,6 +1813,8 @@ async function refreshShelfInPlace() {
   for (const e of evals) {
     const card = document.querySelector(`a.card[href="#/eval/${enc(e.slug)}"]`);
     if (!card) return renderShelf();
+    const runs = card.querySelector(".card-runs");
+    if (runs) runs.outerHTML = runsFactsHtml(e);
     const results = card.querySelector(".card-results");
     if (results) results.outerHTML = resultsStripHtml(e);
     const lastrun = card.querySelector(".lastrun");

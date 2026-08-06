@@ -157,6 +157,15 @@ def best_group(eval_path):
     }
 
 
+def graded_count(eval_path):
+    "How many of an Eval's Runs carry a Grade under its default grader - the shelf strip's graded count"
+    data = collect_eval(eval_path)
+    grader_name = data["eval"]["default_grader"]
+    if grader_name is None:
+        return 0
+    return sum(1 for row in data["rows"] if grader_name in row["grades"])
+
+
 def eval_summary(slug, eval_path):
     "The /api/evals entry for one Eval"
     doc = cached_yaml(eval_path / "eval.yaml") or {}
@@ -171,7 +180,7 @@ def eval_summary(slug, eval_path):
         },
         "last_run_iso": last_run_iso,
         "problems": len(validate_eval(eval_path)),
-        "runs": {"total": total, "failed": failed},
+        "runs": {"total": total, "failed": failed, "graded": graded_count(eval_path)},
         "best": best_group(eval_path),
     }
 
