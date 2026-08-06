@@ -3354,7 +3354,8 @@ function renderContext(wb) {
   if (kind === "grader") return renderGraderPipeline(wb, buf, box);
   if (kind === "config") return renderConfigContext(wb, buf, box);
   box.innerHTML = `
-    <p class="ctx-eyebrow">The Runner contract</p>
+    ${evalSummaryHtml(wb)}
+    <p class="ctx-eyebrow" style="margin-top: var(--sp-4)">The Runner contract</p>
     <p class="ctx-sub">what every Runner subprocess receives</p>
     <div class="env-block">
       ${ENV_CONTRACT.map(([name, what]) => `
@@ -3368,6 +3369,8 @@ function renderContext(wb) {
          this panel adds the model and run directory. Open a grader to see
          its check pipeline instead.</p>
     </div>`;
+  bindFolds(wb, box);
+  bindFoldTools(wb, box);
 }
 
 function configNames(wb) {
@@ -3441,21 +3444,17 @@ const pipeValue = v => {
   return first === s ? s : first + " ⋯";
 };
 
-function renderGraderPipeline(wb, buf, box) {
-  const pipe = pure.pipeline(buf.text, flatFiles(wb));
+// A grader's check pipeline as read-only markup - shared between the
+// live editor context (renderGraderPipeline, below) and the eval-wide
+// summary (evalSummaryHtml/graderSummaryFoldHtml) so both ride the same
+// understanding of a grader (checker name, required flag, config pairs,
+// pass threshold) rather than a second parser drifting from pure.pipeline.
+function pipelineHtml(pipe) {
   if (!pipe.ok) {
-    box.innerHTML = `
-      <p class="ctx-eyebrow">Check pipeline</p>
-      <p class="ctx-sub">what smevals grade runs, in order</p>
-      <div class="env-block"><div class="env-err">The pipeline is waiting
-        for valid YAML — <b>${esc(pipe.error)}</b></div></div>
-      ${benchDryHtml(wb, buf)}`;
-    bindBenchDry(wb, buf, box);
-    return;
+    return `<div class="env-block"><div class="env-err">The pipeline is
+      waiting for valid YAML — <b>${esc(pipe.error)}</b></div></div>`;
   }
-  box.innerHTML = `
-    <p class="ctx-eyebrow">Check pipeline</p>
-    <p class="ctx-sub">what smevals grade runs, in order</p>
+  return `
     <div class="pipe">
       ${pipe.steps.length ? pipe.steps.map(step => {
         const [cls, label] = PIPE_STATUS[step.status];
@@ -3478,7 +3477,15 @@ function renderGraderPipeline(wb, buf, box) {
       A grade passes when every check succeeds${pipe.threshold !== null
         ? `, and the checks' final score reaches
            ${esc(String(pipe.threshold))}` : ""}.
-    </div>
+    </div>`;
+}
+
+function renderGraderPipeline(wb, buf, box) {
+  const pipe = pure.pipeline(buf.text, flatFiles(wb));
+  box.innerHTML = `
+    <p class="ctx-eyebrow">Check pipeline</p>
+    <p class="ctx-sub">what smevals grade runs, in order</p>
+    ${pipelineHtml(pipe)}
     ${benchDryHtml(wb, buf)}`;
   bindBenchDry(wb, buf, box);
 }
@@ -3518,6 +3525,47 @@ function renderConfigContext(wb, buf, box) {
          receives the task as SMEVALS_* environment variables — open a task
          to see them.</p>
     </div>`;
+}
+
+// --- eval summary: "what was tested" / "how it was graded" ---------------
+//
+// Batch 3 item 7: parity with the old dashboard's inline task/grader
+// summary (app.html:394-405) - every Task's prompt/fields and every
+// Grader's checks, without opening each file one by one. Lives on the
+// workbench's default context panel (the same landing state that already
+// explains the generic Runner contract, below). Tasks ride the same
+// text-fold ergonomics the per-run task note already uses (ensureFileText
+// - the editor's own file endpoint, no new one); Graders ride
+// pure.pipeline - the same structural understanding of a check
+// (checker/required/config/threshold) checksEditor's live form and
+// renderGraderPipeline's editor context already share, via pipelineHtml.
+
+function graderSummaryFoldHtml(wb, f) {
+  const name = fileStem(f.path);
+  const text = ensureFileText(wb, f.path);
+  if (text === null) {
+    return foldHtml(wb, `summary:grader:${f.path}`, name,
+      `<div class="fold-loading">Loading…</div>`, false);
+  }
+  const pipe = pure.pipeline(text, flatFiles(wb));
+  return foldHtml(wb, `summary:grader:${f.path}`, name, pipelineHtml(pipe), false);
+}
+
+function evalSummaryHtml(wb) {
+  const tasks = wb.detail.files.tasks || [];
+  const graders = wb.detail.files.graders || [];
+  return `
+    <p class="ctx-eyebrow">What was tested</p>
+    <p class="ctx-sub">every Task's prompt and fields</p>
+    ${tasks.length ? tasks.map(f => textFoldHtml(
+        wb, `summary:task:${f.path}`, fileStem(f.path), f.path, false)).join("")
+      : `<div class="ctx-note"><p>No tasks yet — add one under
+           <code>tasks/</code> to see it here.</p></div>`}
+    <p class="ctx-eyebrow" style="margin-top: var(--sp-4)">How it was graded</p>
+    <p class="ctx-sub">every Grader's check pipeline</p>
+    ${graders.length ? graders.map(f => graderSummaryFoldHtml(wb, f)).join("")
+      : `<div class="ctx-note"><p>No graders yet — add one under
+           <code>graders/</code> to see its checks here.</p></div>`}`;
 }
 
 // --- bench: runs, jobs, grading, dry-run ---------------------------------

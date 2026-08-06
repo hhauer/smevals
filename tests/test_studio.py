@@ -469,6 +469,45 @@ def test_studio_html_results_tab_task_scope():
     assert "resultsHash(wb, wb.compareTask)" in cmp_note
 
 
+def test_studio_html_eval_summary_what_was_tested_and_how_graded():
+    """Batch 3 item 7: a consolidated "what was tested"/"how it was
+    graded" summary on the workbench's default context panel - parity
+    with the old dashboard's inline task/grader summary (app.html:
+    394-405), reachable without opening each task/grader file one by
+    one. Tasks render as clamped text-folds over their raw YAML - the
+    same fold idiom the per-run task note already uses (textFoldHtml /
+    ensureFileText, the editor's own file endpoint - no new one).
+    Graders render via pure.pipeline, the exact structural understanding
+    checksEditor/renderGraderPipeline already share (checker name,
+    required flag, config pairs, pass threshold) - not a second grader
+    parser. Teaching empty states cover no tasks / no graders."""
+    html = studio.studio_html()
+
+    assert "function evalSummaryHtml" in html
+    summary = html.split("function evalSummaryHtml")[1].split("\n}\n", 1)[0]
+    assert "textFoldHtml(" in summary
+    assert "fileStem(f.path)" in summary
+    assert "graderSummaryFoldHtml(wb, f)" in summary
+    assert "No tasks yet" in summary
+    assert "No graders yet" in summary
+
+    grader_fold = html.split("function graderSummaryFoldHtml")[1].split("\n}\n", 1)[0]
+    assert "ensureFileText(wb, f.path)" in grader_fold
+    assert "pure.pipeline(text, flatFiles(wb))" in grader_fold
+    assert "pipelineHtml(pipe)" in grader_fold
+
+    # one shared understanding of a grader's checks, not a duplicate
+    # parser - renderGraderPipeline (the open-grader-file context panel)
+    # rides the same pipelineHtml this summary uses
+    open_grader = html.split("function renderGraderPipeline")[1].split("\n}\n", 1)[0]
+    assert "pipelineHtml(pipe)" in open_grader
+
+    default_ctx = html.split("function renderContext")[1].split("\n}\n", 1)[0]
+    assert "evalSummaryHtml(wb)" in default_ctx
+    assert "bindFolds(wb, box)" in default_ctx
+    assert "bindFoldTools(wb, box)" in default_ctx
+
+
 def test_studio_html_runs_list_recent_grades_sort():
     """Batch 2 item 5b: the runs list gains a sort control with a
     "recently graded" option, alongside its existing task/config/model/tag
