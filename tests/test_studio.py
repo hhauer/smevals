@@ -289,12 +289,20 @@ def test_studio_html_wires_compare_view():
 
     # pin-to-compare: pin affordances and the side-by-side panel, whose
     # full outputs reuse the run-detail body renderer (no forked renderer)
+    # and lead with the grade-workspace artifacts (where image evals keep
+    # their images), pinned to the actual cmp call sites - the bare
+    # function name matches its declaration and proves nothing
     assert "data-pin" in html
     assert "cmp-panel" in html
-    assert "runBodyHtml(wb, row" in html
+    assert "runBodyHtml(wb, row, `cmp:" in html
+    assert "artifactsHtml(wb, row, `cmp:g:" in html
+
+    # a failed /runs fetch must surface as an error, not the teaching
+    # "no runs yet" empty state (same rail the runs list rides)
+    assert html.count("wb.runsErr ?") >= 2
 
     # entry points: the Results tab, the task view and the runs list header
-    assert html.count("compare outputs") >= 2
+    assert html.count("compare outputs") >= 3
 
 
 # --- GET /api/schemas --------------------------------------------------------

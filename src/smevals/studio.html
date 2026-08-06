@@ -2436,7 +2436,7 @@ async function loadWorkbench(slug) {
     // per-model collapse toggle, and the pinned run ids (2-4 -> the
     // side-by-side panel) - all local, no server round-trip of its own
     compareTask: null, compareGrader: null, compareSort: "score",
-    compareAll: false, pinned: new Set(),
+    compareAll: false, pinned: new Set(), pinnedTask: null,
   };
   state.wb = wb;
   view.innerHTML = `<div class="crumb"><a href="#/">← shelf</a></div>`;
@@ -4348,7 +4348,10 @@ function compareRows(wb) {
 // machinery - never a forked artifact renderer.
 function compareVisual(row, grader) {
   const g = grader && (row.grades || {})[grader];
-  const gradeImg = g && (g.files || []).find(f => IMAGE.test(f));
+  // the grader's own raster (render.png) is the picture the score was
+  // computed from; a raw .svg only stands in when no raster sits beside it
+  const gradeImgs = g ? (g.files || []).filter(f => IMAGE.test(f)) : [];
+  const gradeImg = gradeImgs.find(f => !/\.svgz?$/i.test(f)) || gradeImgs[0];
   if (gradeImg) {
     return {
       kind: "image", name: gradeImg,
@@ -4448,6 +4451,9 @@ function comparePanelHtml(wb, grader) {
                 <button type="button" class="btn btn-sm btn-ghost"
                         data-unpin="${esc(row.run)}">unpin</button>
               </div>
+              ${g && (g.files || []).length
+                ? artifactsHtml(wb, row, `cmp:g:${row.run}`, `grades/${grader}/`, g.files)
+                : ""}
               ${runBodyHtml(wb, row, `cmp:${row.run}`)}
             </div>`;
         }).join("")}
@@ -4499,9 +4505,10 @@ function compareHtml(wb, tasks, graders) {
       </label>
     </div>
     ${comparePanelHtml(wb, wb.compareGrader)}
+    ${wb.runsErr ? `<div class="ed-err">${errorBox(wb.runsErr)}</div>` : ""}
     ${rows.length ? `
       <div class="cmp-grid">${rows.map(row => compareCardHtml(wb, row, wb.compareGrader)).join("")}</div>`
-      : `
+      : wb.runsErr ? "" : `
       <div class="ed-empty">
         <h3>No runs yet for this task</h3>
         <p>Run <b>${esc(wb.compareTask)}</b> with a config to see its
@@ -4519,6 +4526,13 @@ function renderComparePane(wb) {
   }
   const tasks = taskNames(wb);
   if (!wb.compareTask || !tasks.includes(wb.compareTask)) wb.compareTask = tasks[0] || null;
+  // pins are per-task; the select handler clears them, but the task can
+  // also change underneath us via the URL (entry links, back/forward,
+  // bookmarks) - another task's outputs must never render as this one's
+  if (wb.pinnedTask !== wb.compareTask) {
+    wb.pinned.clear();
+    wb.pinnedTask = wb.compareTask;
+  }
   const graders = graderNames(wb);
   if (!wb.compareGrader || !graders.includes(wb.compareGrader)) {
     wb.compareGrader = graders.includes("default") ? "default" : (graders[0] || null);
