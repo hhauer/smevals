@@ -139,9 +139,8 @@ def run_stats(eval_path):
     return last, total, failed
 
 
-def best_group(eval_path):
+def best_group(data):
     "Highest-mean (config, model) group under the default grader, or None - the shelf strip's best score"
-    data = collect_eval(eval_path)
     grader_name = data["eval"]["default_grader"]
     if grader_name is None:
         return None
@@ -157,19 +156,24 @@ def best_group(eval_path):
     }
 
 
-def graded_count(eval_path):
+def graded_count(data):
     "How many of an Eval's Runs carry a Grade under its default grader - the shelf strip's graded count"
-    data = collect_eval(eval_path)
     grader_name = data["eval"]["default_grader"]
     if grader_name is None:
         return 0
     return sum(1 for row in data["rows"] if grader_name in row["grades"])
 
 
+def model_count(data):
+    "How many distinct models have a Run in this Eval - the shelf strip's/facts bar's model count"
+    return len({row["model"] for row in data["rows"] if row["model"]})
+
+
 def eval_summary(slug, eval_path):
     "The /api/evals entry for one Eval"
     doc = cached_yaml(eval_path / "eval.yaml") or {}
     last_run_iso, total, failed = run_stats(eval_path)
+    data = collect_eval(eval_path)
     return {
         "slug": slug,
         "name": doc.get("name") or eval_path.name,
@@ -180,8 +184,13 @@ def eval_summary(slug, eval_path):
         },
         "last_run_iso": last_run_iso,
         "problems": len(validate_eval(eval_path)),
-        "runs": {"total": total, "failed": failed, "graded": graded_count(eval_path)},
-        "best": best_group(eval_path),
+        "runs": {
+            "total": total,
+            "failed": failed,
+            "graded": graded_count(data),
+            "models": model_count(data),
+        },
+        "best": best_group(data),
     }
 
 

@@ -324,6 +324,21 @@ def test_studio_html_shelf_card_shows_run_totals():
     assert html.count("runsFactsHtml(e)") >= 2
 
 
+def test_studio_html_workbench_shows_facts_bar():
+    """Batch 1 item 2: the eval workbench shows a one-line facts bar - tasks
+    · configs · models · runs · graded - parity with the old dashboard's
+    per-eval facts line (app.html:381-388). Built entirely from wb.info,
+    the shelf payload the workbench already fetches (Task 1's counts/runs
+    plus the models count added here) - no new endpoint."""
+    html = studio.studio_html()
+    assert "function wbFactsHtml" in html
+    assert "wbFactsHtml(wb)" in html
+    assert 'class="wb-facts"' in html
+    assert "countPhrase(runs.models" in html
+    assert "countPhrase(runs.total" in html
+    assert "runs.graded" in html
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 
@@ -423,8 +438,32 @@ def test_discovery_reports_runs_counts(server):
     write_run(first / "runs", model="m-1", exit_code=1, output="")
 
     entries = {e["slug"]: e for e in json.loads(get("/api/evals")[2])}
-    assert entries["first-eval"]["runs"] == {"total": 2, "failed": 1, "graded": 1}
-    assert entries["second-eval"]["runs"] == {"total": 0, "failed": 0, "graded": 0}
+    assert entries["first-eval"]["runs"] == {
+        "total": 2,
+        "failed": 1,
+        "graded": 1,
+        "models": 1,
+    }
+    assert entries["second-eval"]["runs"] == {
+        "total": 0,
+        "failed": 0,
+        "graded": 0,
+        "models": 0,
+    }
+
+
+def test_discovery_reports_distinct_model_count(server):
+    # Batch 1 item 2: the eval facts bar's "models" count - distinct
+    # models across every Run, including failed ones, matching the old
+    # dashboard's `new Set(rows.map(r => r.model))` (app.html:375)
+    get, root, first, second = server
+    write_run(first / "runs", model="m-1")
+    write_run(first / "runs", model="m-1", exit_code=1, output="")
+    write_run(first / "runs", model="m-2")
+
+    entries = {e["slug"]: e for e in json.loads(get("/api/evals")[2])}
+    assert entries["first-eval"]["runs"]["models"] == 2
+    assert entries["second-eval"]["runs"]["models"] == 0
 
 
 def test_discovery_reports_graded_count_under_default_grader(server):

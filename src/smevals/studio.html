@@ -378,6 +378,14 @@ body.wb header { padding-block: var(--sp-5) var(--sp-4); }
   color: var(--text-3);
   white-space: nowrap;
 }
+.wb-facts {
+  margin: calc(-1 * var(--sp-2)) 0 var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.wb-facts b { font-weight: 600; color: var(--text-2); }
 .wb-grid {
   display: grid;
   grid-template-columns: var(--wb-tree-w) minmax(0, 1fr) var(--wb-ctx-w);
@@ -1648,6 +1656,10 @@ async function loadEvals(force = false) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+// "<b>N</b> tasks" - the counts idiom shared by shelf cards and the
+// workbench facts bar; kind is the plural noun ("tasks", "runs", ...)
+const countPhrase = (n, kind) => `<b>${n}</b> ${kind.slice(0, -1)}${n === 1 ? "" : "s"}`;
+
 function ago(iso) {
   const s = (Date.now() - new Date(iso)) / 1000;
   if (s < 60) return "just now";
@@ -1677,21 +1689,17 @@ function resultsStripHtml(e) {
 // (app.html:230-236). The fail count reuses the sweep ledger's existing
 // fail styling and shows only when nonzero, same rule as resultsStripHtml.
 function runsFactsHtml(e) {
-  const total = e.runs?.total ?? 0;
   const graded = e.runs?.graded ?? 0;
   const failed = e.runs?.failed ?? 0;
   return `
-    <div class="card-runs"><b>${total}</b> run${total === 1 ? "" : "s"} · <b>${
+    <div class="card-runs">${countPhrase(e.runs?.total ?? 0, "runs")} · <b>${
       graded}</b> graded${failed
         ? ` · <span class="sw-failn">${esc(plural(failed, "fail"))}</span>` : ""}</div>`;
 }
 
 function cardHtml(e) {
   const counts = ["tasks", "configs", "graders"]
-    .map(k => {
-      const n = e.counts?.[k] ?? 0;
-      return `<b>${n}</b> ${k.slice(0, -1)}${n === 1 ? "" : "s"}`;
-    })
+    .map(k => countPhrase(e.counts?.[k] ?? 0, k))
     .join(" · ");
   const run = e.last_run_iso
     ? `<span class="dot${Date.now() - new Date(e.last_run_iso) < 86400000
@@ -2581,6 +2589,22 @@ async function renderWorkbench(slug, surface) {
   renderPanes(wb);
 }
 
+// The eval facts bar - tasks/configs/models/runs/graded on one line,
+// parity with the old dashboard's per-eval facts (app.html:381-388).
+// Built entirely from wb.info (the shelf payload the workbench already
+// fetched at open time), so it costs no extra request - and, like the
+// file tree's runs/ count below, is a snapshot from workbench-open time
+// rather than something the bench's run/grade actions refresh live.
+function wbFactsHtml(wb) {
+  const counts = wb.info.counts || {};
+  const runs = wb.info.runs || {};
+  const facts = ["tasks", "configs"]
+    .map(k => countPhrase(counts[k] ?? 0, k))
+    .concat([countPhrase(runs.models ?? 0, "models"), countPhrase(runs.total ?? 0, "runs")])
+    .join(" · ");
+  return `<div class="wb-facts">${facts} · <b>${runs.graded ?? 0}</b> graded</div>`;
+}
+
 function renderShell(wb) {
   const problems = (wb.detail.validation || []).length;
   view.innerHTML = `
@@ -2590,6 +2614,7 @@ function renderShell(wb) {
       ${problems ? `<span class="badge-warn">${esc(plural(problems, "problem"))}</span>` : ""}
       <span class="wb-hint">⌘S saves · files live in your working tree</span>
     </div>
+    ${wbFactsHtml(wb)}
     <div class="wb-grid">
       <nav class="card pane pane-tree" id="wb-tree" aria-label="Files"></nav>
       <section class="card pane pane-editor" id="wb-editor"></section>
