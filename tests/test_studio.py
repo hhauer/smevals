@@ -339,6 +339,26 @@ def test_studio_html_workbench_shows_facts_bar():
     assert "runs.graded" in html
 
 
+def test_studio_html_header_eval_switcher():
+    """Batch 1 item 3: a persistent eval switcher in the header - parity
+    with the old dashboard's always-visible nav#evals (app.html:186-190) -
+    every eval one click away regardless of the current surface. A compact
+    <select> (a flat link list would crowd the header once an install has
+    many evals), populated from state.evals and navigating to #/eval/<slug>
+    on change; the current eval is pre-selected when inside one, resynced
+    both when state.evals (re)loads and when a stashed workbench reattaches
+    without a fresh fetch (renderShell runs on both paths)."""
+    html = studio.studio_html()
+    assert 'id="eval-switcher"' in html
+    assert "function syncEvalSwitcher" in html
+    assert "syncEvalSwitcher(state.wb ? state.wb.slug : null)" in html
+    assert "syncEvalSwitcher(wb.slug)" in html
+    assert "location.hash = `#/eval/${enc(slug)}`" in html
+    # esc() discipline: both the slug (attribute) and the name (text) escaped
+    assert 'value="${esc(e.slug)}"' in html
+    assert ">${esc(e.name)}</option>" in html
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 

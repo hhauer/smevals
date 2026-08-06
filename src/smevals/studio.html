@@ -1141,6 +1141,7 @@ a.meta-link:hover { color: var(--accent); text-decoration-style: solid; }
 .header-nav { display: flex; gap: var(--sp-4); }
 .header-nav a { font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); }
 .header-nav a:hover { color: var(--text); text-decoration: none; }
+#eval-switcher { max-width: 200px; font-size: var(--fs-xs); color: var(--text-2); }
 
 /* ---- shelf: results strip -------------------------------------------------- */
 .card-results {
@@ -1573,6 +1574,9 @@ table.sw-board th, table.sw-board td {
 <header>
   <a class="wordmark" href="#/">smevals<span class="studio">studio</span></a>
   <nav class="header-nav"><a href="#/results">Results</a><a href="#/sweep">Sweeps</a></nav>
+  <select id="eval-switcher" aria-label="Jump to eval">
+    <option value="">Jump to eval…</option>
+  </select>
   <span id="header-meta"></span>
 </header>
 <main id="view"></main>
@@ -1648,8 +1652,24 @@ async function loadEvals(force = false) {
     state.evals = await api("/api/evals");
     document.getElementById("header-meta").textContent =
       state.evals.length ? plural(state.evals.length, "eval") : "";
+    syncEvalSwitcher(state.wb ? state.wb.slug : null);
   }
   return state.evals;
+}
+
+// The header's persistent eval switcher - parity with the old dashboard's
+// always-visible nav#evals (app.html:186-190) - every eval one click away
+// regardless of the current surface. Rebuilt from state.evals whenever it
+// (re)loads above; also called directly from renderShell so a stashed
+// workbench reattaching (no fresh fetch, state.evals unchanged) still
+// moves the selection to its slug.
+function syncEvalSwitcher(slug) {
+  const sel = document.getElementById("eval-switcher");
+  if (!sel) return;
+  const evals = state.evals || [];
+  sel.innerHTML = `<option value="">Jump to eval…</option>` +
+    evals.map(e => `<option value="${esc(e.slug)}"${
+      e.slug === slug ? " selected" : ""}>${esc(e.name)}</option>`).join("");
 }
 
 // --- helpers -------------------------------------------------------------
@@ -2606,6 +2626,7 @@ function wbFactsHtml(wb) {
 }
 
 function renderShell(wb) {
+  syncEvalSwitcher(wb.slug);
   const problems = (wb.detail.validation || []).length;
   view.innerHTML = `
     <div class="wb-head">
@@ -5569,6 +5590,14 @@ window.addEventListener("beforeunload", event => {
     event.preventDefault();
     event.returnValue = "";
   }
+});
+
+// Bound once: syncEvalSwitcher only ever replaces the <select>'s <option>
+// children, never the element itself, so this listener survives every
+// rebuild of the option list.
+document.getElementById("eval-switcher").addEventListener("change", event => {
+  const slug = event.target.value;
+  if (slug) location.hash = `#/eval/${enc(slug)}`;
 });
 
 // --- router --------------------------------------------------------------
