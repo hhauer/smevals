@@ -1244,6 +1244,144 @@ button.tagshare-row:hover .tagshare-name { color: var(--accent); }
 }
 .runs-filter b { color: var(--text); font-family: var(--font-mono); }
 
+/* ---- compare: contact-sheet grid, cards, pin panel ------------------------ */
+.cmp-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.cmp-controls select {
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 3px 8px;
+}
+.cmp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  margin-left: auto;
+  cursor: pointer;
+}
+.cmp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-5);
+}
+.cmp-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cmp-card { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+}
+.cmp-card:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: var(--shadow); }
+.cmp-card.pinned { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.cmp-card-link { display: block; color: inherit; }
+.cmp-card-link:hover { text-decoration: none; }
+.cmp-pin {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 9px;
+  cursor: pointer;
+}
+.cmp-pin:hover { color: var(--text); border-color: var(--text-3); }
+.cmp-pin[aria-pressed="true"] { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
+.cmp-pin:disabled { opacity: 0.4; cursor: default; }
+.cmp-vis {
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.cmp-vis-img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.cmp-vis-text { align-items: flex-start; justify-content: flex-start; padding: var(--sp-2); }
+.cmp-vis-text pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+}
+.cmp-vis-wait, .cmp-vis-empty {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-style: italic;
+  padding: var(--sp-3);
+  text-align: center;
+}
+.cmp-card-meta { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+.cmp-card-model {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.cmp-card-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+  flex-wrap: wrap;
+}
+.cmp-card-when { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-3); margin-left: auto; }
+.cmp-panel {
+  margin: var(--sp-3) var(--sp-4) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--surface-2) 40%, transparent);
+}
+.cmp-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+.cmp-panel-head button { margin-left: auto; }
+.cmp-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.cmp-col { padding: var(--sp-3); border-right: 1px solid var(--line); min-width: 0; }
+.cmp-col:last-child { border-right: none; }
+.cmp-col-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-2);
+}
+.cmp-col-head button { margin-left: auto; }
+.cmp-col-sub { font-size: var(--fs-xs); color: var(--text-3); }
+@media (max-width: 900px) {
+  .cmp-cols { grid-template-columns: 1fr; }
+  .cmp-col { border-right: none; border-bottom: 1px solid var(--line); }
+  .cmp-col:last-child { border-bottom: none; }
+}
+
 /* ---- global results matrix ------------------------------------------------ */
 .matrix-wrap { overflow-x: auto; padding: var(--sp-2) var(--sp-2) var(--sp-3); }
 table.matrix { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
@@ -2294,6 +2432,11 @@ async function loadWorkbench(slug) {
     // results tab state (Task 2): the eval_results document for the
     // currently-picked grader, fetched lazily the same way
     results: null, resultsGrader: null, resultsErr: null,
+    // compare surface state (Task 8): the picked task/grader/sort, the
+    // per-model collapse toggle, and the pinned run ids (2-4 -> the
+    // side-by-side panel) - all local, no server round-trip of its own
+    compareTask: null, compareGrader: null, compareSort: "score",
+    compareAll: false, pinned: new Set(),
   };
   state.wb = wb;
   view.innerHTML = `<div class="crumb"><a href="#/">← shelf</a></div>`;
@@ -2382,6 +2525,7 @@ async function renderWorkbench(slug, surface) {
   }
   wb.surface = surface;
   if (surface.runs) wb.runsFilter = surface.filter || null;
+  if (surface.compare && surface.task) wb.compareTask = surface.task;
   const fpath = surface.file || null;
   wb.open = fpath;
   if (fpath && !wb.buffers.has(fpath)) {
@@ -2434,6 +2578,7 @@ function renderPanes(wb) {
   renderTree(wb);
   if (wb.surface && wb.surface.runs) renderRunsPane(wb);
   else if (wb.surface && wb.surface.results) renderResultsPane(wb);
+  else if (wb.surface && wb.surface.compare) renderComparePane(wb);
   else renderEditor(wb);
   renderContext(wb);
 }
@@ -2444,6 +2589,7 @@ function renderBenchSurfaces(wb) {
   renderTree(wb);
   if (wb.surface && wb.surface.runs) renderRunsPane(wb);
   else if (wb.surface && wb.surface.results) renderResultsPane(wb);
+  else if (wb.surface && wb.surface.compare) renderComparePane(wb);
   renderContext(wb);
 }
 
@@ -3102,6 +3248,7 @@ function renderContext(wb) {
     return row ? renderRunNote(wb, box, row) : renderBenchNote(wb, box);
   }
   if (wb.surface && wb.surface.results) return renderResultsNote(wb, box);
+  if (wb.surface && wb.surface.compare) return renderCompareNote(wb, box);
   const buf = wb.open && wb.buffers.get(wb.open);
   const kind = buf ? pure.docKind(buf.path) : null;
   if (kind === "task") return renderTaskMirror(wb, buf, box);
@@ -3168,6 +3315,7 @@ function renderTaskMirror(wb, buf, box) {
          <code>SMEVALS_TASK_&lt;KEY&gt;</code>.</p>
       <p><a href="${runsFilterHash(wb, { task: fileStem(buf.path) })}">runs
          of this task →</a></p>
+      <p><a href="${compareHash(wb, fileStem(buf.path))}">compare outputs →</a></p>
     </div>
     ${benchRunHtml(wb, buf)}`;
   bindBenchRun(wb, buf, box);
@@ -3288,6 +3436,8 @@ const runsFilterHash = (wb, filter) => {
 };
 const graderNames = wb => (wb.detail.files.graders || [])
   .map(f => f.path.replace(/^graders\//, "").replace(/\.yaml$/, ""));
+const taskNames = wb => (wb.detail.files.tasks || [])
+  .map(f => f.path.replace(/^tasks\//, "").replace(/\.yaml$/, ""));
 const fileStem = path => String(path).replace(/^.*\//, "").replace(/\.yaml$/, "");
 const runOk = row => !(row.exit_code ?? 0);
 const fmtDuration = s => s == null ? "" :
@@ -3570,9 +3720,11 @@ function renderRunsList(wb, box) {
   box.innerHTML = `
     <div class="ed-head">
       <span class="ed-path">runs</span>
-      <span class="ed-actions"><span class="bench-hint">${
-        esc(plural(rows.length, "run"))}${
-          filter ? ` of ${wb.runs.length}` : ""}</span></span>
+      <span class="ed-actions">
+        <span class="bench-hint">${esc(plural(rows.length, "run"))}${
+          filter ? ` of ${wb.runs.length}` : ""}</span>
+        <a href="${compareHash(wb, filter && filter.task)}">compare outputs →</a>
+      </span>
     </div>
     ${filter ? `
       <div class="runs-filter">showing ${filterPartsHtml(filter)}
@@ -4142,6 +4294,287 @@ function dryPanelHtml(wb, buf) {
     </div>`;
 }
 
+// --- compare surface (#/eval/<slug>/compare) --------------------------------
+//
+// Task 8, Jesse's direct feedback: "the results views don't provide a nice
+// easy way to compare the various runs outputs visually on one screen" -
+// the all-the-pelicans-on-one-screen view. One task, every run (or, per
+// model when collapsed), as a contact-sheet grid; pin 2-4 for a full
+// side-by-side panel. Rides the same /runs rows every other bench surface
+// already fetches via ensureRuns (files + grade-workspace artifact names
+// ride along) - no endpoint of its own.
+
+// task: preselect a task on the Compare surface (falls back to the first
+// task there); omit to keep whatever the surface last had picked
+const compareHash = (wb, task) =>
+  `#/eval/${enc(wb.slug)}/compare${task ? `?task=${enc(task)}` : ""}`;
+
+// Ungraded/failed runs sort last under "score" - -Infinity, not 0, so a
+// genuine 0 score still outranks "never graded"
+const compareScore = (row, grader) => {
+  const g = grader && (row.grades || {})[grader];
+  return g && typeof g.score === "number" ? g.score : -Infinity;
+};
+const COMPARE_SORTS = {
+  score: (rows, grader) => [...rows].sort((a, b) =>
+    compareScore(b, grader) - compareScore(a, grader)),
+  model: rows => [...rows].sort((a, b) =>
+    String(a.model ?? "").localeCompare(String(b.model ?? ""))),
+  newest: rows => [...rows].sort((a, b) =>
+    String(b.started || "").localeCompare(String(a.started || ""))),
+};
+
+// The active sort, scoped to the picked task; collapsed to one card per
+// model by keeping only the first row per model after sorting - so
+// "best" falls out under score sort and "latest" falls out under newest,
+// with no separate best/latest bookkeeping.
+function compareRows(wb) {
+  const rows = (wb.runs || []).filter(r => r.task === wb.compareTask);
+  const sorted = (COMPARE_SORTS[wb.compareSort] || COMPARE_SORTS.score)(
+    rows, wb.compareGrader);
+  if (wb.compareAll) return sorted;
+  const seen = new Set();
+  return sorted.filter(r => {
+    if (seen.has(r.model)) return false;
+    seen.add(r.model);
+    return true;
+  });
+}
+
+// Representative visual precedence (the brief, verbatim): a grade
+// workspace image (the active grader's) beats a run-dir image beats a
+// clamped output.txt peek beats an honest empty state. Picks which of
+// the row's already-known filenames to hand to the existing image/text
+// machinery - never a forked artifact renderer.
+function compareVisual(row, grader) {
+  const g = grader && (row.grades || {})[grader];
+  const gradeImg = g && (g.files || []).find(f => IMAGE.test(f));
+  if (gradeImg) {
+    return {
+      kind: "image", name: gradeImg,
+      rel: `runs/${row.run}/grades/${grader}/${gradeImg}`,
+    };
+  }
+  const runImg = (row.files || []).find(f => IMAGE.test(f));
+  if (runImg) return { kind: "image", name: runImg, rel: `runs/${row.run}/${runImg}` };
+  if ((row.files || []).includes("output.txt")) {
+    return { kind: "text", rel: `runs/${row.run}/output.txt` };
+  }
+  return { kind: "empty" };
+}
+
+const COMPARE_TEXT_LINES = 12;
+
+function compareVisualHtml(wb, row, grader) {
+  const visual = compareVisual(row, grader);
+  if (visual.kind === "image") {
+    const blob = ensureRawBlob(wb, visual.rel);
+    return `
+      <div class="cmp-vis">${
+        blob === null ? `<div class="cmp-vis-wait">loading…</div>`
+        : blob.err ? `<div class="cmp-vis-wait">couldn't load ${esc(visual.name)}</div>`
+        : `<img class="cmp-vis-img" src="${esc(blob.url)}" alt="${esc(visual.name)}">`}
+      </div>`;
+  }
+  if (visual.kind === "text") {
+    const text = ensureFileText(wb, visual.rel);
+    if (text === null) return `<div class="cmp-vis"><div class="cmp-vis-wait">loading…</div></div>`;
+    const clamped = text.split("\n").slice(0, COMPARE_TEXT_LINES).join("\n");
+    return `<div class="cmp-vis cmp-vis-text"><pre>${esc(clamped) || "(empty)"}</pre></div>`;
+  }
+  return `
+    <div class="cmp-vis cmp-vis-empty">${
+      runOk(row) ? "no output yet" : "run failed — no output to show"}</div>`;
+}
+
+function compareCardHtml(wb, row, grader) {
+  const g = grader && (row.grades || {})[grader];
+  const pinned = wb.pinned.has(row.run);
+  const capped = !pinned && wb.pinned.size >= 4;
+  // The pin control is a sibling of the run-detail link, not nested
+  // inside it - a <button> can't nest inside an <a>, and this way the
+  // browser's own click handling keeps them independent, no
+  // stopPropagation bookkeeping needed.
+  return `
+    <div class="cmp-card${pinned ? " pinned" : ""}">
+      <button type="button" class="cmp-pin" data-pin="${esc(row.run)}"
+              aria-pressed="${pinned}" ${capped ? "disabled" : ""}
+              title="${pinned ? "unpin" : capped ? "unpin one to pin another (4 max)" : "pin to compare"}">${
+        pinned ? "pinned" : "pin"}</button>
+      <a class="cmp-card-link" href="${runHash(wb, row.run)}">
+        ${compareVisualHtml(wb, row, grader)}
+        <div class="cmp-card-meta">
+          <div class="cmp-card-model">${esc(row.model ?? "?")}</div>
+          <div class="cmp-card-sub">
+            ${g ? gradeChip(grader, g, true)
+                : runOk(row) ? `<span class="rg-none">ungraded</span>`
+                : `<span class="chip-grade fail">failed</span>`}
+            <span class="cmp-card-when">${row.started ? esc(ago(row.started)) : "—"}</span>
+          </div>
+        </div>
+      </a>
+    </div>`;
+}
+
+// Pin 2-4 cards for a full side-by-side panel: complete outputs (image
+// full-size + complete text, the run detail's own wrap/show-all
+// ergonomics) via runBodyHtml - the same renderer the run detail uses,
+// not a fork of it.
+function comparePanelHtml(wb, grader) {
+  const pinned = [...wb.pinned]
+    .map(run => (wb.runs || []).find(r => r.run === run))
+    .filter(Boolean);
+  if (pinned.length < 2) return "";
+  return `
+    <div class="cmp-panel">
+      <div class="cmp-panel-head">
+        <span class="bench-hint">${esc(plural(pinned.length, "run"))} pinned</span>
+        <button type="button" class="btn btn-sm btn-ghost" data-cmp-clear>clear</button>
+      </div>
+      <div class="cmp-cols">
+        ${pinned.map(row => {
+          const g = grader && (row.grades || {})[grader];
+          const checks = g ? (g.checks || []) : [];
+          const summary = checks.length
+            ? `${checks.filter(c => c && c.ok).length}/${checks.length} checks passed` : "";
+          return `
+            <div class="cmp-col">
+              <div class="cmp-col-head">
+                <div class="cmp-card-model">${esc(row.model ?? "?")}</div>
+                ${g ? gradeChip(grader, g, true)
+                    : runOk(row) ? `<span class="rg-none">ungraded</span>`
+                    : `<span class="chip-grade fail">failed</span>`}
+                ${summary ? `<span class="cmp-col-sub">${esc(summary)}</span>` : ""}
+                <button type="button" class="btn btn-sm btn-ghost"
+                        data-unpin="${esc(row.run)}">unpin</button>
+              </div>
+              ${runBodyHtml(wb, row, `cmp:${row.run}`)}
+            </div>`;
+        }).join("")}
+      </div>
+    </div>`;
+}
+
+function compareHtml(wb, tasks, graders) {
+  if (!tasks.length) {
+    return `
+      <div class="ed-head"><span class="ed-path">compare</span></div>
+      <div class="ed-empty">
+        <h3>No tasks yet</h3>
+        <p>Compare puts one task's outputs from every run side by side -
+           add a task under <code>tasks/</code> first.</p>
+      </div>`;
+  }
+  const rows = compareRows(wb);
+  const allRows = (wb.runs || []).filter(r => r.task === wb.compareTask);
+  return `
+    <div class="ed-head">
+      <span class="ed-path">compare</span>
+      <span class="ed-actions"><span class="bench-hint">${
+        esc(plural(rows.length, "card"))}${
+          !wb.compareAll && allRows.length !== rows.length
+            ? ` (of ${allRows.length})` : ""}</span></span>
+    </div>
+    <div class="cmp-controls">
+      <label class="bench-hint" for="cmp-task">task</label>
+      <select id="cmp-task">
+        ${tasks.map(t => `
+          <option value="${esc(t)}" ${t === wb.compareTask ? "selected" : ""}>${esc(t)}</option>`).join("")}
+      </select>
+      <label class="bench-hint" for="cmp-grader">grader</label>
+      <select id="cmp-grader" ${graders.length ? "" : "disabled"}>
+        ${graders.length ? graders.map(g => `
+          <option value="${esc(g)}" ${g === wb.compareGrader ? "selected" : ""}>${esc(g)}</option>`).join("")
+          : `<option>none yet</option>`}
+      </select>
+      <label class="bench-hint" for="cmp-sort">sort</label>
+      <select id="cmp-sort">
+        <option value="score" ${wb.compareSort === "score" ? "selected" : ""}>score</option>
+        <option value="model" ${wb.compareSort === "model" ? "selected" : ""}>model</option>
+        <option value="newest" ${wb.compareSort === "newest" ? "selected" : ""}>newest</option>
+      </select>
+      <label class="cmp-toggle">
+        <input type="checkbox" data-cmp-all ${wb.compareAll ? "checked" : ""}>
+        show all runs
+      </label>
+    </div>
+    ${comparePanelHtml(wb, wb.compareGrader)}
+    ${rows.length ? `
+      <div class="cmp-grid">${rows.map(row => compareCardHtml(wb, row, wb.compareGrader)).join("")}</div>`
+      : `
+      <div class="ed-empty">
+        <h3>No runs yet for this task</h3>
+        <p>Run <b>${esc(wb.compareTask)}</b> with a config to see its
+           outputs here, side by side with every other run.</p>
+      </div>`}`;
+}
+
+function renderComparePane(wb) {
+  const box = document.getElementById("wb-editor");
+  if (!box) return;
+  if (wb.runs === null) {
+    box.innerHTML = `<div class="ed-empty"><p>Loading runs…</p></div>`;
+    ensureRuns(wb).then(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+    return;
+  }
+  const tasks = taskNames(wb);
+  if (!wb.compareTask || !tasks.includes(wb.compareTask)) wb.compareTask = tasks[0] || null;
+  const graders = graderNames(wb);
+  if (!wb.compareGrader || !graders.includes(wb.compareGrader)) {
+    wb.compareGrader = graders.includes("default") ? "default" : (graders[0] || null);
+  }
+  box.innerHTML = compareHtml(wb, tasks, graders);
+  bindComparePane(wb, box);
+}
+
+function togglePin(wb, run) {
+  if (wb.pinned.has(run)) wb.pinned.delete(run);
+  else if (wb.pinned.size < 4) wb.pinned.add(run);
+  renderComparePane(wb);
+}
+
+function bindComparePane(wb, box) {
+  box.querySelector("#cmp-task")?.addEventListener("change", ev => {
+    wb.pinned.clear();
+    location.hash = compareHash(wb, ev.target.value);
+  });
+  box.querySelector("#cmp-grader")?.addEventListener("change", ev => {
+    wb.compareGrader = ev.target.value;
+    renderComparePane(wb);
+  });
+  box.querySelector("#cmp-sort")?.addEventListener("change", ev => {
+    wb.compareSort = ev.target.value;
+    renderComparePane(wb);
+  });
+  box.querySelector("[data-cmp-all]")?.addEventListener("change", ev => {
+    wb.compareAll = ev.target.checked;
+    renderComparePane(wb);
+  });
+  box.querySelectorAll("[data-pin]").forEach(el =>
+    el.addEventListener("click", () => togglePin(wb, el.dataset.pin)));
+  box.querySelectorAll("[data-unpin]").forEach(el =>
+    el.addEventListener("click", () => togglePin(wb, el.dataset.unpin)));
+  box.querySelector("[data-cmp-clear]")?.addEventListener("click", () => {
+    wb.pinned.clear();
+    renderComparePane(wb);
+  });
+  bindFolds(wb, box);
+  bindArtifacts(wb, box); // downloads + wrap/show-all inside the pinned panel
+}
+
+function renderCompareNote(wb, box) {
+  box.innerHTML = `
+    <p class="ctx-eyebrow">Compare</p>
+    <p class="ctx-sub">one task, every run, on one screen</p>
+    <div class="ctx-note">
+      <p>Each card shows a run's best artifact: a grade's image first,
+         then the run's own image, then a clamped peek at
+         <code>output.txt</code>.</p>
+      <p>Pin 2-4 cards for a full side-by-side panel with complete
+         outputs and a per-check summary - no need to open each run.</p>
+    </div>`;
+}
+
 // --- results tab (#/eval/<slug>/results) -----------------------------------
 //
 // One eval's Results-tab document (site.eval_results via GET .../results):
@@ -4279,6 +4712,7 @@ function renderResultsPane(wb) {
           </select>` : graders.length === 1
             ? `<span class="bench-hint">grader: <b>${esc(r.grader)}</b></span>`
             : `<span class="bench-hint">no graders yet</span>`}
+        <a href="${compareHash(wb)}">compare outputs →</a>
       </span>
     </div>
     ${wb.resultsErr ? `<div class="ed-err">${errorBox(wb.resultsErr)}</div>` : ""}
@@ -5092,12 +5526,17 @@ function route() {
     return renderSweep();
   }
   const m = hashPath.match(
-    /^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?|(\/runs)(?:\/([^/]+))?|(\/results))?$/);
+    /^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?|(\/runs)(?:\/([^/]+))?|(\/results)|(\/compare))?$/);
   document.body.classList.toggle("wb", !!m);
   if (m) {
     const slug = decodeURIComponent(m[1]);
     if (m[6]) {
       return renderWorkbench(slug, { results: true });
+    }
+    if (m[7]) {
+      const params = new URLSearchParams(hashQuery || "");
+      return renderWorkbench(slug,
+        { compare: true, task: params.get("task") || null });
     }
     if (m[4]) {
       const params = new URLSearchParams(hashQuery || "");

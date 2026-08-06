@@ -269,6 +269,34 @@ def test_studio_html_wires_run_exploration():
     assert "data-full" in html
 
 
+def test_studio_html_wires_compare_view():
+    """Task 8: the Compare surface (#/eval/<slug>/compare) - one task's
+    outputs from every run on one screen, riding the existing read rails
+    (the /runs listing already carries file + grade-workspace artifact
+    names; images blob-fetch through /raw) - never a new endpoint."""
+    html = studio.studio_html()
+
+    # routed as a workbench surface, with the task carried in the URL
+    assert "/compare" in html
+    assert "compare: true" in html
+    assert "renderComparePane" in html
+    assert "compareHash" in html
+
+    # the contact sheet's controls: task picker, grader picker, sort,
+    # and the per-model collapse toggle
+    for control in ("cmp-task", "cmp-grader", "cmp-sort", "data-cmp-all"):
+        assert control in html
+
+    # pin-to-compare: pin affordances and the side-by-side panel, whose
+    # full outputs reuse the run-detail body renderer (no forked renderer)
+    assert "data-pin" in html
+    assert "cmp-panel" in html
+    assert "runBodyHtml(wb, row" in html
+
+    # entry points: the Results tab, the task view and the runs list header
+    assert html.count("compare outputs") >= 2
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 
