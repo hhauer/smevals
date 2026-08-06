@@ -595,8 +595,10 @@ def run_studio(root, port, token):
             if tail == "runs":
                 return self.reply_json(collect_eval(eval_dir)["rows"])
             if tail == "results":
-                grader_name = urllib.parse.parse_qs(query).get("grader", ["default"])[0]
-                return self.reply_json(eval_results(eval_dir, grader_name))
+                params = urllib.parse.parse_qs(query)
+                grader_name = params.get("grader", ["default"])[0]
+                task = params.get("task", [None])[0]
+                return self.reply_json(eval_results(eval_dir, grader_name, task))
             self.reply_error(404, "not found")
 
         def serve_file(self, eval_dir, rel):

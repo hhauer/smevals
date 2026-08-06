@@ -333,6 +333,71 @@ def test_eval_results_tags_aggregate_across_groups(make_eval, tmp_path):
     assert results["tags"] == {"hat": 2, "bike": 1}
 
 
+# --- eval_results task filter (Batch 3 item 6: per-task leaderboard) ------
+#
+# Additive: task=None (the default) must keep behaving exactly like before
+# this parameter existed - covered by every eval_results test above, which
+# calls it with no task argument at all.
+
+
+def test_eval_results_task_filter_scopes_groups_and_total(make_eval, tmp_path):
+    eval_dir = make_eval(
+        name="results",
+        tasks={"alpha": {"prompt": "a"}, "beta": {"prompt": "b"}},
+        runner=None,
+        root=tmp_path,
+    )
+    grader_doc = read_yaml(eval_dir / "graders" / "default.yaml")
+    runs_root = eval_dir / "runs"
+    write_grade(write_run(runs_root, task="alpha", model="m-1"), grader_doc, score=1.0)
+    write_grade(write_run(runs_root, task="alpha", model="m-1"), grader_doc, score=0.6)
+    write_grade(write_run(runs_root, task="beta", model="m-1"), grader_doc, score=0.2)
+
+    scoped = site.eval_results(eval_dir, "default", task="alpha")
+    assert scoped["task"] == "alpha"
+    assert scoped["total"] == 2
+    (group,) = scoped["groups"]
+    assert group["n"] == 2
+    assert group["mean"] == pytest.approx(0.8)
+
+    # unscoped (the default) still covers every task
+    unscoped = site.eval_results(eval_dir, "default")
+    assert unscoped["task"] is None
+    assert unscoped["total"] == 3
+
+
+def test_eval_results_task_filter_scopes_excluded_and_ungraded(make_eval, tmp_path):
+    eval_dir = make_eval(
+        name="results",
+        tasks={"alpha": {"prompt": "a"}, "beta": {"prompt": "b"}},
+        runner=None,
+        root=tmp_path,
+    )
+    grader_doc = read_yaml(eval_dir / "graders" / "default.yaml")
+    runs_root = eval_dir / "runs"
+    write_grade(write_run(runs_root, task="alpha", model="m-1"), grader_doc, score=1.0)
+    write_run(runs_root, task="alpha", model="m-1")  # never graded
+    failed = write_run(runs_root, task="beta", model="m-1", exit_code=1, output="")
+    write_grade(failed, grader_doc, outcome="fail", score=0.0)
+
+    alpha = site.eval_results(eval_dir, "default", task="alpha")
+    assert alpha["ungraded"] == 1
+    assert alpha["excluded_failed"] == 0
+
+    beta = site.eval_results(eval_dir, "default", task="beta")
+    assert beta["ungraded"] == 0
+    assert beta["excluded_failed"] == 1
+
+
+def test_eval_results_task_filter_unknown_task_is_empty(make_eval, tmp_path):
+    eval_dir, grader_doc = results_eval(make_eval, tmp_path)
+    write_grade(write_run(eval_dir / "runs", model="m-1"), grader_doc, score=1.0)
+
+    results = site.eval_results(eval_dir, "default", task="no-such-task")
+    assert results["groups"] == []
+    assert results["total"] == 0
+
+
 def test_results_matrix_target_n_inference_and_incomplete(make_eval, tmp_path):
     eval_dir, grader_doc = results_eval(make_eval, tmp_path)
     runs_root = eval_dir / "runs"

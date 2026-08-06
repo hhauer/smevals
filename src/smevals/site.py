@@ -245,20 +245,25 @@ def group_stats(rows, grader_name):
     return stats
 
 
-def eval_results(eval_path, grader_name="default"):
-    """One Eval's Results-tab document: {grader, graders, groups, tags,
-    total, excluded_failed, ungraded, stale, generated}. grader_name
+def eval_results(eval_path, grader_name="default", task=None):
+    """One Eval's Results-tab document: {grader, graders, task, groups,
+    tags, total, excluded_failed, ungraded, stale, generated}. grader_name
     falls back exactly like collect_eval/serve do when it names a grader
-    the Eval doesn't have.
+    the Eval doesn't have. task, when given, scopes every figure to that
+    Task's Runs only - the Results tab's per-task leaderboard (Batch 3
+    item 6) rides this rather than a second, client-side aggregation path.
     """
     data = collect_eval(eval_path, grader_name)
     grader_name = data["eval"]["default_grader"]
     rows = data["rows"]
+    if task is not None:
+        rows = [row for row in rows if row["task"] == task]
 
     if grader_name is None:
         return {
             "grader": None,
             "graders": grader_list(data),
+            "task": task,
             "groups": [],
             "tags": {},
             "total": 0,
@@ -291,6 +296,7 @@ def eval_results(eval_path, grader_name="default"):
     return {
         "grader": grader_name,
         "graders": grader_list(data),
+        "task": task,
         "groups": groups,
         "tags": tags,
         "total": sum(g["n"] for g in groups),

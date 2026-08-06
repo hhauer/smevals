@@ -418,6 +418,57 @@ def test_studio_html_results_tab_recent_grades_feed():
     assert "ensureRuns(wb)" in pane
 
 
+def test_studio_html_results_tab_task_scope():
+    """Batch 3 item 6: a per-task leaderboard on the Results tab - parity
+    with the old dashboard's task-scoped leaderboard (app.html:450-451). A
+    task-scope <select> (an "all tasks" default plus one option per task,
+    mirroring the existing grader picker) re-ranks the leaderboard and
+    pass-rate meters by asking site.eval_results for just that Task's Runs
+    (the new additive task filter, site.py:174-301) rather than filtering
+    client-side over a second aggregation path. The scope is carried in
+    the URL - ?task= on the results hash, the same idiom compareHash uses
+    for Compare's task - so it survives reload, back and bookmarks."""
+    html = studio.studio_html()
+
+    # the hash carries an optional task, same idiom as compareHash
+    assert "const resultsHash = (wb, task) =>" in html
+    hash_fn = html.split("const resultsHash = (wb, task) =>")[1].split(";\n", 1)[0]
+    assert "?task=${enc(task)}" in hash_fn
+
+    # the router parses ?task= for the /results branch and threads it
+    # through renderWorkbench as part of the results surface
+    router = html.split("function route()")[1]
+    assert '{ results: true, task: params.get("task") || null }' in router
+
+    # renderWorkbench syncs wb.resultsTask from the surface and drops the
+    # cached document when the scope actually changes, so a URL-driven
+    # task change (not just a grader change) forces a re-fetch
+    wire = html.split("async function renderWorkbench")[1].split("\n}\n", 1)[0]
+    assert "wb.resultsTask" in wire
+    assert "wb.results = null" in wire
+
+    # the fetch carries task alongside grader - one aggregation path
+    loader = html.split("async function loadEvalResults")[1].split("\n}\n", 1)[0]
+    assert 'params.set("task", task)' in loader
+
+    pane = html.split("function renderResultsPane")[1].split("\n}\n", 1)[0]
+    # the task-scope control: all-tasks default + one option per task,
+    # mirroring the grader picker built from graders/graderNames
+    assert 'id="results-task"' in pane
+    assert ">all tasks</option>" in pane
+    assert "taskNames(wb)" in pane
+    assert "resultsHash(wb, taskSel.value || null)" in pane
+    # the leaderboard/pass-rate meters ride the scoped API response
+    assert "loadEvalResults(wb, wb.resultsGrader, wb.resultsTask)" in pane
+
+    # linked from wherever tasks are already listed: the task-mirror panel...
+    mirror = html.split("function renderTaskMirror")[1].split("\n}\n", 1)[0]
+    assert "resultsHash(wb, fileStem(buf.path))" in mirror
+    # ...and Compare's task-picker context
+    cmp_note = html.split("function renderCompareNote")[1].split("\n}\n", 1)[0]
+    assert "resultsHash(wb, wb.compareTask)" in cmp_note
+
+
 def test_studio_html_runs_list_recent_grades_sort():
     """Batch 2 item 5b: the runs list gains a sort control with a
     "recently graded" option, alongside its existing task/config/model/tag
@@ -1500,6 +1551,44 @@ def test_eval_results_endpoint_unknown_eval_is_404(server):
     assert status == 404
     assert ctype == "application/json"
     assert "error" in json.loads(body)
+
+
+def test_eval_results_endpoint_task_query_param(server):
+    """Batch 3 item 6: a task query param scopes the leaderboard to one
+    Task's Runs - the per-task leaderboard rides this rather than a
+    client-side filter over a second aggregation path."""
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(
+        write_run(first / "runs", task="alpha", model="m-1"), grader_doc, score=1.0
+    )
+    write_grade(
+        write_run(first / "runs", task="beta", model="m-1"), grader_doc, score=0.2
+    )
+
+    status, _, body = get("/api/evals/first-eval/results?task=alpha")
+    assert status == 200
+    data = json.loads(body)
+    assert data["task"] == "alpha"
+    assert data["total"] == 1
+    assert data["groups"][0]["mean"] == pytest.approx(1.0)
+
+
+def test_eval_results_endpoint_without_task_covers_every_task(server):
+    get, root, first, second = server
+    grader_doc = read_yaml(first / "graders" / "default.yaml")
+    write_grade(
+        write_run(first / "runs", task="alpha", model="m-1"), grader_doc, score=1.0
+    )
+    write_grade(
+        write_run(first / "runs", task="beta", model="m-1"), grader_doc, score=0.2
+    )
+
+    status, _, body = get("/api/evals/first-eval/results")
+    assert status == 200
+    data = json.loads(body)
+    assert data["task"] is None
+    assert data["total"] == 2
 
 
 # --- GET /api/results ------------------------------------------------------------

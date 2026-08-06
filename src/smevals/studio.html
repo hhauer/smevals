@@ -2496,8 +2496,11 @@ async function loadWorkbench(slug) {
     job: null, drySel: null, dry: null, dryErr: null, dryPending: false,
     detailsState: {}, runText: {}, rawCache: {}, textPrefs: {},
     // results tab state (Task 2): the eval_results document for the
-    // currently-picked grader, fetched lazily the same way
-    results: null, resultsGrader: null, resultsErr: null,
+    // currently-picked grader, fetched lazily the same way. resultsTask
+    // (Batch 3 item 6) scopes it to one Task's Runs - null means "all
+    // tasks" - and is synced from the URL by renderWorkbench, the same
+    // way surface.task drives compareTask below.
+    results: null, resultsGrader: null, resultsErr: null, resultsTask: null,
     // compare surface state (Task 8): the picked task/grader/sort, the
     // per-model collapse toggle, and the pinned run ids (2-4 -> the
     // side-by-side panel) - all local, no server round-trip of its own
@@ -2592,6 +2595,18 @@ async function renderWorkbench(slug, surface) {
   wb.surface = surface;
   if (surface.runs) wb.runsFilter = surface.filter || null;
   if (surface.compare && surface.task) wb.compareTask = surface.task;
+  // Batch 3 item 6: the Results tab's task scope is URL-driven, unlike
+  // Compare's (which keeps whatever was last picked when the URL omits
+  // it) - the base /results hash always means "all tasks". A scope
+  // change drops the cached document so the next render re-fetches.
+  if (surface.results) {
+    const nextTask = surface.task || null;
+    if (nextTask !== wb.resultsTask) {
+      wb.resultsTask = nextTask;
+      wb.results = null;
+      wb.resultsErr = null;
+    }
+  }
   const fpath = surface.file || null;
   wb.open = fpath;
   if (fpath && !wb.buffers.has(fpath)) {
@@ -3400,6 +3415,8 @@ function renderTaskMirror(wb, buf, box) {
       <p><a href="${runsFilterHash(wb, { task: fileStem(buf.path) })}">runs
          of this task →</a></p>
       <p><a href="${compareHash(wb, fileStem(buf.path))}">compare outputs →</a></p>
+      <p><a href="${resultsHash(wb, fileStem(buf.path))}">results for this
+         task →</a></p>
     </div>
     ${benchRunHtml(wb, buf)}`;
   bindBenchRun(wb, buf, box);
@@ -4693,6 +4710,8 @@ function renderCompareNote(wb, box) {
          <code>output.txt</code>.</p>
       <p>Pin 2-4 cards for a full side-by-side panel with complete
          outputs and a per-check summary - no need to open each run.</p>
+      ${wb.compareTask ? `<p><a href="${resultsHash(wb, wb.compareTask)}">
+         results for this task →</a></p>` : ""}
     </div>`;
 }
 
@@ -4703,13 +4722,20 @@ function renderCompareNote(wb, box) {
 // blocks, and the excluded/ungraded/stale annotations as quiet badges -
 // numbers only ever come from the API, this file just formats them.
 
-const resultsHash = wb => `#/eval/${enc(wb.slug)}/results`;
+// task: preselect a task scope (all tasks when omitted) - same idiom as
+// compareHash, so the Results tab's scope survives reload/back/bookmarks
+const resultsHash = (wb, task) =>
+  `#/eval/${enc(wb.slug)}/results${task ? `?task=${enc(task)}` : ""}`;
 
-async function loadEvalResults(wb, grader, force = false) {
+async function loadEvalResults(wb, grader, task, force = false) {
   if (wb.results !== null && !force) return;
   try {
-    const data = await api(`/api/evals/${enc(wb.slug)}/results${
-      grader ? `?grader=${enc(grader)}` : ""}`);
+    const params = new URLSearchParams();
+    if (grader) params.set("grader", grader);
+    if (task) params.set("task", task);
+    const qs = params.toString();
+    const data = await api(
+      `/api/evals/${enc(wb.slug)}/results${qs ? `?${qs}` : ""}`);
     if (state.wb !== wb) return;
     wb.results = data;
     wb.resultsGrader = data.grader;
@@ -4838,13 +4864,20 @@ function renderResultsPane(wb) {
       ? `<div class="ed-head"><span class="ed-path">results</span></div>
          <div class="ed-err">${errorBox(wb.resultsErr)}</div>`
       : `<div class="ed-empty"><p>Loading results…</p></div>`;
-    loadEvalResults(wb, wb.resultsGrader).then(() => {
+    loadEvalResults(wb, wb.resultsGrader, wb.resultsTask).then(() => {
       if (state.wb === wb) renderBenchSurfaces(wb);
     });
     return;
   }
   const r = wb.results;
   const graders = r.graders || [];
+  // Batch 3 item 6: the task-scope control mirrors the grader picker -
+  // an "all tasks" default plus one option per task, from the same
+  // taskNames(wb) source Compare's own task picker reads. A task deleted
+  // out from under a picked scope falls back to "all tasks" rather than
+  // silently querying a name that no longer exists.
+  const tasks = taskNames(wb);
+  if (wb.resultsTask && !tasks.includes(wb.resultsTask)) wb.resultsTask = null;
   // The "recently graded" feed below reads wb.runs, fetched lazily like
   // every other bench surface - loading in the background rather than
   // blocking the rest of the tab (the leaderboard/tags/metrics above
@@ -4856,6 +4889,13 @@ function renderResultsPane(wb) {
     <div class="ed-head">
       <span class="ed-path">results</span>
       <span class="ed-actions">
+        ${tasks.length ? `
+          <label class="bench-hint" for="results-task">task</label>
+          <select id="results-task">
+            <option value="" ${!wb.resultsTask ? "selected" : ""}>all tasks</option>
+            ${tasks.map(t => `
+              <option value="${esc(t)}" ${t === wb.resultsTask ? "selected" : ""}>${esc(t)}</option>`).join("")}
+          </select>` : ""}
         ${graders.length > 1 ? `
           <label class="bench-hint" for="results-grader">grader</label>
           <select id="results-grader">
@@ -4898,15 +4938,19 @@ function renderResultsPane(wb) {
       </div>`}`;
   box.querySelectorAll(".lb-row").forEach(el => el.addEventListener("click", () => {
     location.hash = runsFilterHash(wb,
-      { config: el.dataset.config, model: el.dataset.model });
+      { config: el.dataset.config, model: el.dataset.model, task: wb.resultsTask });
   }));
   // A tag chip pivots into the runs list, scoped to the grader it was
   // counted under - the runs surface shows which rows carry the tag
   box.querySelectorAll(".tagshare-row[data-tag]").forEach(el =>
     el.addEventListener("click", () => {
       location.hash = runsFilterHash(wb,
-        { tag: el.dataset.tag, grader: r.grader });
+        { tag: el.dataset.tag, grader: r.grader, task: wb.resultsTask });
     }));
+  const taskSel = box.querySelector("#results-task");
+  if (taskSel) taskSel.addEventListener("change", () => {
+    location.hash = resultsHash(wb, taskSel.value || null);
+  });
   const graderSel = box.querySelector("#results-grader");
   if (graderSel) graderSel.addEventListener("change", () => {
     wb.resultsGrader = graderSel.value;
@@ -5629,7 +5673,7 @@ async function refreshVisibleResults() {
   try {
     if (state.wb && state.wb.surface && state.wb.surface.results) {
       const wb = state.wb;
-      await loadEvalResults(wb, wb.resultsGrader, true);
+      await loadEvalResults(wb, wb.resultsGrader, wb.resultsTask, true);
       if (state.wb === wb) renderResultsPane(wb);
     } else if (state.wb && state.wb.surface
         && (state.wb.surface.runs || state.wb.surface.compare)) {
@@ -5714,7 +5758,9 @@ function route() {
   if (m) {
     const slug = decodeURIComponent(m[1]);
     if (m[6]) {
-      return renderWorkbench(slug, { results: true });
+      const params = new URLSearchParams(hashQuery || "");
+      return renderWorkbench(slug,
+        { results: true, task: params.get("task") || null });
     }
     if (m[7]) {
       const params = new URLSearchParams(hashQuery || "");
