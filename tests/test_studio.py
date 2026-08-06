@@ -359,6 +359,36 @@ def test_studio_html_header_eval_switcher():
     assert ">${esc(e.name)}</option>" in html
 
 
+def test_studio_html_read_surfaces_poll_continuously_outside_sweeps():
+    """Batch 2 item 4: continuous auto-refresh outside sweeps - parity with
+    the old dashboard's always-on 3s poll (app.html:738-770). READ surfaces
+    (shelf, runs list, run detail, Results tab, Compare) refresh on a timer
+    regardless of an active sweep, so a run or grade landing from any
+    process (e.g. a CLI run in another terminal) shows up without a
+    reload; the sweep board's own 1s loop (startSweepPoll) is untouched.
+    Gated on tab visibility only - studio.html had no pre-existing
+    visibility/backoff convention on this ticker to inherit. HARD
+    CONSTRAINT: an editor pane is never touched - the new runs/compare
+    branch is gated explicitly on those two surface flags (never a bare
+    file surface), and calls renderBenchSurfaces, which - like every other
+    caller on this refresh rail - never reaches renderEditor."""
+    html = studio.studio_html()
+
+    tick = html.split("function pollResultsTick")[1].split("\n\n", 1)[0]
+    assert "document.visibilityState" in tick
+    assert "state.sweepActive" not in tick
+
+    body = html.split("async function refreshVisibleResults")[1].split("\n}\n", 1)[0]
+    assert "state.wb.surface.runs || state.wb.surface.compare" in body
+    assert "ensureRuns(wb, true)" in body
+    assert "renderBenchSurfaces(wb)" in body
+
+    bench_surfaces_body = html.split("function renderBenchSurfaces")[1].split(
+        "\n}\n", 1
+    )[0]
+    assert "renderEditor" not in bench_surfaces_body
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 

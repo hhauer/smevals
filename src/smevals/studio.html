@@ -5532,10 +5532,20 @@ async function syncSweepOnBoot() {
 
 // --- live poll ticker --------------------------------------------------------
 //
-// Live like serve: while a sweep job is active, re-fetch whichever results
-// surface is visible (the per-eval tab, the global matrix, or the shelf's
-// results strips) every ~3s. Gated on state.sweepActive, which the sweep
-// poll loop above maintains.
+// Continuous auto-refresh (Batch 2 item 4), parity with the old dashboard's
+// always-on 3s poll (app.html:738-770): whichever READ surface is visible -
+// the shelf, the runs list/detail, the per-eval Results tab, Compare, or
+// the global matrix - re-fetches and re-renders every ~3s, so a run or
+// grade landing from any process (a CLI run in another terminal, say)
+// shows up without a reload. No longer gated on an active sweep; tab
+// visibility is the only gate (no pre-existing visibility/backoff
+// convention on this ticker to inherit). An editor pane is never touched:
+// every branch below ends in a render path (renderBenchSurfaces,
+// renderResultsPane, refreshResultsMatrix, refreshShelfInPlace) that stops
+// short of the editor body, and the runs/compare branch is gated
+// explicitly on those two surface flags rather than any file surface. The
+// sweep board's own board/log refresh (startSweepPoll, above) is a
+// separate ~1s loop that keeps running alongside this one during a sweep.
 
 let pollTickBusy = false;
 
@@ -5547,6 +5557,11 @@ async function refreshVisibleResults() {
       const wb = state.wb;
       await loadEvalResults(wb, wb.resultsGrader, true);
       if (state.wb === wb) renderResultsPane(wb);
+    } else if (state.wb && state.wb.surface
+        && (state.wb.surface.runs || state.wb.surface.compare)) {
+      const wb = state.wb;
+      await ensureRuns(wb, true);
+      if (state.wb === wb) renderBenchSurfaces(wb);
     } else if (document.getElementById("results-matrix-slot")) {
       await refreshResultsMatrix();
     } else if (!state.wb && document.querySelector(".shelf-grid")
@@ -5558,8 +5573,10 @@ async function refreshVisibleResults() {
   }
 }
 
+// Poll only while the tab is visible: continuous background fetches serve
+// no one when the studio tab isn't on screen.
 function pollResultsTick() {
-  if (state.sweepActive) refreshVisibleResults();
+  if (document.visibilityState === "visible") refreshVisibleResults();
 }
 
 setInterval(pollResultsTick, 3000);
