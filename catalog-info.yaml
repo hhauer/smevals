@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: smevals
+  description: Framework and CLI for defining, running, grading, and reporting evals against small (and large) models
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    prime-radiant.com/repo-map-rev: "9e2f3dda83d098aa4a2e0358f71d993e75c8ea30"
+  tags: [python, evals]
+  links:
+    - { url: "https://pypi.org/project/smevals/", title: "PyPI" }
+spec:
+  type: tool
+  lifecycle: experimental
+  owner: user:simonw
+  system: eval-labs
