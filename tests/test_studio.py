@@ -2539,3 +2539,30 @@ def test_models_includes_lms_inventory_as_local(server, fake_lms):
     data = json.loads(body)
     assert data["local"] == ["local-alpha", "local-beta"]
     assert {"local-alpha", "local-beta", "gpt-4.1-mini"} <= set(data["models"])
+
+
+def test_studio_html_poll_and_grade_state_survive_rerenders():
+    """Parity review fix wave: the always-on poll must not clobber
+    in-flight grading state or re-render unchanged surfaces, and
+    Gallery's URL scopes must clear when their params are absent."""
+    html = studio.studio_html()
+
+    # gallery seeds clear on absent params - the "all tasks" option and
+    # the tag "clear" link express removal by omitting the param
+    assert "wb.galleryTask = surface.task || null" in html
+    assert "wb.galleryTag = surface.tag || null" in html
+
+    # in-flight grades live on wb, not in the DOM: a poll re-render keeps
+    # the button disabled and the error box renders from state
+    assert "grading: new Set()" in html
+    assert "gradeErrs: new Map()" in html
+    assert html.count("wb.grading.delete") >= 2
+
+    # the poll re-renders only when the payload fingerprint moved
+    assert "pollFpRuns" in html
+    assert "pollFpResults" in html
+
+    # gallery expander reveals bounded chunks; blob completions coalesce
+    # into one rAF-batched re-render instead of one per image
+    assert "GALLERY_CHUNK" in html
+    assert html.count("scheduleBenchRender(") >= 3

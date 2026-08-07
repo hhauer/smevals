@@ -2555,10 +2555,14 @@ async function loadWorkbench(slug) {
     // side-by-side panel) - all local, no server round-trip of its own
     compareTask: null, compareGrader: null, compareSort: "score",
     compareAll: false, pinned: new Set(), pinnedTask: null,
-    // gallery surface state: task/tag/grader scope (each seeded once from
-    // the URL by renderWorkbench, then local like compareTask/Grader
-    // above) and galleryAll, the GALLERY_CAP expander's local toggle
-    galleryTask: null, galleryTag: null, galleryGrader: null, galleryAll: false,
+    // gallery surface state: task/tag scope ride the URL both ways,
+    // grader is seeded once then local; galleryShown is the expander's
+    // reveal count (0 = the GALLERY_CAP first-paint default)
+    galleryTask: null, galleryTag: null, galleryGrader: null, galleryShown: 0,
+    // in-flight grades + their errors live here, not in the DOM, so the
+    // poll's re-renders can't re-enable a mid-flight button or detach
+    // the node an error would have landed in
+    grading: new Set(), gradeErrs: new Map(),
   };
   state.wb = wb;
   view.innerHTML = `<div class="crumb"><a href="#/">← shelf</a></div>`;
@@ -2648,13 +2652,14 @@ async function renderWorkbench(slug, surface) {
   wb.surface = surface;
   if (surface.runs) wb.runsFilter = surface.filter || null;
   if (surface.compare && surface.task) wb.compareTask = surface.task;
-  // Gallery's task/tag/grader all ride the URL as one-time seeds on entry
-  // (an entry link is the only thing that sets them) - after that they're
-  // local, like compareTask/compareGrader above, so the gal-task/gal-grader
-  // selects don't fight a URL that no longer changes underneath them.
+  // Gallery's task/tag ride the URL both ways: the gal-task select and
+  // the tag "clear" link express removal by OMITTING the param, so an
+  // absent param must clear the scope - a seed-once here would leave
+  // "all tasks" and "clear" as dead controls. Grader stays a seed-once
+  // because gal-grader mutates state without touching the hash.
   if (surface.gallery) {
-    if (surface.task) wb.galleryTask = surface.task;
-    if (surface.tag) wb.galleryTag = surface.tag;
+    wb.galleryTask = surface.task || null;
+    wb.galleryTag = surface.tag || null;
     if (surface.grader) wb.galleryGrader = surface.grader;
   }
   // Batch 3 item 6: the Results tab's task scope is URL-driven, unlike
@@ -3719,13 +3724,26 @@ const gradeChip = (name, g, bare = false) => {
 
 // --- run artifacts: cached file reads + collapsible sections ---------------
 
+// Coalesce the re-renders that fire as fetched artifacts settle: on an
+// expanded gallery dozens of blob loads can land in one breath, and one
+// rAF-batched render replaces O(n) full-pane rebuilds with one.
+let benchRenderQueued = false;
+function scheduleBenchRender(wb) {
+  if (benchRenderQueued) return;
+  benchRenderQueued = true;
+  requestAnimationFrame(() => {
+    benchRenderQueued = false;
+    if (state.wb === wb) renderBenchSurfaces(wb);
+  });
+}
+
 function ensureFileText(wb, rel) {
   if (wb.runText[rel] !== undefined) return wb.runText[rel];
   wb.runText[rel] = null; // loading
   api(`/api/evals/${enc(wb.slug)}/file?path=${enc(rel)}`)
     .then(data => { wb.runText[rel] = data.content; })
     .catch(ex => { wb.runText[rel] = `(couldn't read ${rel}: ${ex.message})`; })
-    .finally(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+    .finally(() => scheduleBenchRender(wb));
   return null;
 }
 
@@ -3744,7 +3762,7 @@ function ensureRawBlob(wb, rel) {
       wb.rawCache[rel] = { url };
     })
     .catch(ex => { wb.rawCache[rel] = { err: ex.message }; })
-    .finally(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+    .finally(() => scheduleBenchRender(wb));
   return null;
 }
 
@@ -4047,10 +4065,14 @@ function runGradesHtml(wb, row) {
             <span class="rg-name">${esc(name)}</span>
             ${g ? gradeChip(name, g, true)
                 : `<span class="rg-none">not graded yet</span>`}
-            ${failed ? "" : `
+            ${failed ? "" : (() => {
+              const inflight = wb.grading.has(`${row.run}\u0000${name}`);
+              return `
               <button type="button" class="btn btn-sm ${g ? "btn-ghost" : "btn-primary"}"
-                      data-grade="${esc(name)}" data-run="${esc(row.run)}">
-                ${g ? "Regrade" : "Grade"}</button>`}
+                      data-grade="${esc(name)}" data-run="${esc(row.run)}"
+                      ${inflight ? "disabled" : ""}>
+                ${inflight ? "Grading…" : g ? "Regrade" : "Grade"}</button>`;
+            })()}
           </div>
           ${checks.length ? foldHtml(wb, `run:${row.run}:checks:${name}`,
             plural(checks.length, "check"),
@@ -4062,7 +4084,9 @@ function runGradesHtml(wb, row) {
           ${g && (g.files || []).length
             ? artifactsHtml(wb, row, `run:g:${name}`, `grades/${name}/`, g.files)
             : ""}
-          <div data-grade-err="${esc(name)}"></div>`;
+          <div data-grade-err="${esc(name)}">${
+            wb.gradeErrs.has(`${row.run}\u0000${name}`)
+              ? errorBox(wb.gradeErrs.get(`${row.run}\u0000${name}`)) : ""}</div>`;
       }).join("") : `<p class="rg-note">No graders in this eval yet — add
         one under graders/ and it can score this run.</p>`}
     </div>`;
@@ -4078,11 +4102,20 @@ function bindGradeButtons(wb, container) {
 }
 
 async function doGrade(wb, run, grader, errSlot, button) {
-  const label = button.textContent;
+  // In-flight state lives on wb, not in the DOM: the always-on poll can
+  // replace this pane mid-grade, and a state-rendered button stays
+  // disabled across that re-render (and can't double-submit). The error
+  // renders from wb.gradeErrs for the same reason - the closed-over
+  // errSlot may be a detached node by the time we need it.
+  const key = `${run}\u0000${grader}`;
+  if (wb.grading.has(key)) return;
+  wb.grading.add(key);
+  wb.gradeErrs.delete(key);
   button.disabled = true;
   button.textContent = "Grading…";
   try {
     await api(`/api/evals/${enc(wb.slug)}/grade`, { body: { run, grader } });
+    wb.grading.delete(key);
     if (state.wb !== wb) return;
     await ensureRuns(wb, true);
     if (state.wb !== wb) return;
@@ -4092,10 +4125,10 @@ async function doGrade(wb, run, grader, errSlot, button) {
     document.querySelector(
       `[data-grade="${CSS.escape(grader)}"][data-run="${CSS.escape(run)}"]`)?.focus();
   } catch (ex) {
+    wb.grading.delete(key);
     if (state.wb !== wb) return;
-    button.disabled = false;
-    button.textContent = label;
-    if (errSlot) errSlot.innerHTML = errorBox(ex.message);
+    wb.gradeErrs.set(key, ex.message);
+    renderBenchSurfaces(wb);
   }
 }
 
@@ -4851,10 +4884,12 @@ const galleryHash = (wb, opts = {}) => {
   return `#/eval/${enc(wb.slug)}/gallery${q ? `?${q}` : ""}`;
 };
 
-// First paint fetches at most this many blobs; the "All N images →"
-// expander (data-gal-more) lifts the cap locally - the rows are already in
-// hand, so lifting it costs no new /runs fetch, only the deferred /raw ones.
+// First paint fetches at most GALLERY_CAP blobs; the expander
+// (data-gal-more) reveals GALLERY_CHUNK more per click - bounded, so a
+// 500-image eval can't fire 500 concurrent /raw fetches in one breath.
+// The rows are already in hand; revealing costs only the deferred blobs.
 const GALLERY_CAP = 12;
+const GALLERY_CHUNK = 48;
 
 // Same bucketing every cell sorts by: scored beats ungraded beats failed -
 // compareScore alone can't tell "never graded" from "failed", so a failed
@@ -4905,7 +4940,8 @@ function galleryCellHtml(wb, entry) {
 
 function galleryHtml(wb, tasks, graders) {
   const entries = galleryEntries(wb);
-  const shown = wb.galleryAll ? entries : entries.slice(0, GALLERY_CAP);
+  const cap = Math.max(GALLERY_CAP, wb.galleryShown);
+  const shown = entries.slice(0, cap);
   return `
     <div class="ed-head">
       <span class="ed-path">gallery</span>
@@ -4933,9 +4969,11 @@ function galleryHtml(wb, tasks, graders) {
     ${wb.runsErr ? `<div class="ed-err">${errorBox(wb.runsErr)}</div>` : ""}
     ${shown.length ? `
       <div class="gal-grid">${shown.map(e => galleryCellHtml(wb, e)).join("")}</div>
-      ${!wb.galleryAll && entries.length > GALLERY_CAP ? `
+      ${entries.length > cap ? `
         <p class="gal-more-wrap"><button type="button" class="btn btn-sm btn-ghost"
-          data-gal-more>All ${entries.length} images →</button></p>` : ""}`
+          data-gal-more>${entries.length - cap <= GALLERY_CHUNK
+            ? `All ${entries.length} images →`
+            : `More images → (${cap} of ${entries.length})`}</button></p>` : ""}`
       : wb.runsErr ? "" : `
       <div class="ed-empty">
         <h3>No images yet</h3>
@@ -4965,7 +5003,7 @@ function renderGalleryPane(wb) {
 
 function bindGalleryPane(wb, box) {
   box.querySelector("#gal-task")?.addEventListener("change", ev => {
-    wb.galleryAll = false;
+    wb.galleryShown = 0;
     location.hash = galleryHash(wb,
       { task: ev.target.value || null, grader: wb.galleryGrader, tag: wb.galleryTag });
   });
@@ -4974,7 +5012,7 @@ function bindGalleryPane(wb, box) {
     renderGalleryPane(wb);
   });
   box.querySelector("[data-gal-more]")?.addEventListener("click", () => {
-    wb.galleryAll = true;
+    wb.galleryShown = Math.max(GALLERY_CAP, wb.galleryShown) + GALLERY_CHUNK;
     renderGalleryPane(wb);
   });
 }
@@ -5952,6 +5990,14 @@ async function syncSweepOnBoot() {
 
 let pollTickBusy = false;
 
+// The poll fetches every tick but re-renders only when the payload
+// actually moved (app.html's fingerprint-diff rule): an unconditional
+// 3s innerHTML replace destroys text selection, open <select> popups,
+// focus and scroll positions for no reason.
+const runsFingerprint = rows => (rows || []).map(r =>
+  `${r.run}|${r.exit_code}|${Object.entries(r.grades || {})
+    .map(([n, g]) => `${n}:${g.graded || ""}`).join(",")}`).join("\n");
+
 async function refreshVisibleResults() {
   if (pollTickBusy) return;
   pollTickBusy = true;
@@ -5959,13 +6005,25 @@ async function refreshVisibleResults() {
     if (state.wb && state.wb.surface && state.wb.surface.results) {
       const wb = state.wb;
       await loadEvalResults(wb, wb.resultsGrader, wb.resultsTask, true);
-      if (state.wb === wb) renderResultsPane(wb);
+      if (state.wb === wb) {
+        const fp = JSON.stringify(wb.results);
+        if (fp !== wb.pollFpResults) {
+          wb.pollFpResults = fp;
+          renderResultsPane(wb);
+        }
+      }
     } else if (state.wb && state.wb.surface
         && (state.wb.surface.runs || state.wb.surface.compare
             || state.wb.surface.gallery)) {
       const wb = state.wb;
       await ensureRuns(wb, true);
-      if (state.wb === wb) renderBenchSurfaces(wb);
+      if (state.wb === wb) {
+        const fp = runsFingerprint(wb.runs);
+        if (fp !== wb.pollFpRuns) {
+          wb.pollFpRuns = fp;
+          renderBenchSurfaces(wb);
+        }
+      }
     } else if (document.getElementById("results-matrix-slot")) {
       await refreshResultsMatrix();
     } else if (!state.wb && document.querySelector(".shelf-grid")
