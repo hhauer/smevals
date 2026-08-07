@@ -1244,6 +1244,14 @@ a.meta-link:hover { color: var(--accent); text-decoration-style: solid; }
 }
 .lb-score .stderr { color: var(--text-3); font-weight: 400; }
 .lb-empty { font-size: var(--fs-sm); color: var(--text-3); font-style: italic; padding: var(--sp-2) 0; }
+.gs { margin: var(--sp-4); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); max-width: 46rem; }
+.gs h3 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); }
+.gs-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--sp-1); font-size: var(--fs-sm); }
+.gs-step.done { color: var(--text-3); }
+.gs-step.done .gs-mark { color: var(--pass); }
+.gs-step .gs-mark { display: inline-block; width: 1.1em; }
+.gs-hint { color: var(--text-3); font-size: var(--fs-xs); margin-left: var(--sp-1); }
+.gs-tip { color: var(--text-3); font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
 .tagshare-line { display: flex; align-items: center; gap: var(--sp-2); }
 .tagshare-line .tagshare-row { flex: 1; min-width: 0; }
 .tagshare-gal { flex: none; font-size: var(--fs-xs); white-space: nowrap; }
@@ -2887,6 +2895,42 @@ function renderTree(wb) {
 
 // --- editor --------------------------------------------------------------
 
+// A new eval's landing pane walks the author to their first graded run:
+// task -> grader -> run -> grade, each step linking to where it happens.
+// Once a grade exists the eval is rolling and the checklist retires.
+function gettingStartedHtml(wb) {
+  if (wb.info.runs?.graded) return "";
+  const runs = wb.info.runs || {};
+  const tasks = wb.detail.files.tasks || [];
+  const graders = wb.detail.files.graders || [];
+  const step = (done, label, href, hint) => `
+    <li class="gs-step${done ? " done" : ""}">
+      <span class="gs-mark">${done ? "✓" : "○"}</span>
+      ${href ? `<a href="${href}">${label}</a>` : label}
+      ${hint ? `<span class="gs-hint">${esc(hint)}</span>` : ""}
+    </li>`;
+  return `
+    <div class="gs">
+      <h3>Getting started</h3>
+      <ol class="gs-steps">
+        ${step(tasks.length > 0, "Write your task's prompt",
+               tasks.length ? fileHash(wb, tasks[0].path, false) : null,
+               tasks.length ? "" : "add a YAML file under tasks/")}
+        ${step(graders.length > 0, "Give the grader something to check",
+               graders.length ? fileHash(wb, graders[0].path, false) : null,
+               "checks run over whatever the Runner printed")}
+        ${step((runs.total || 0) > 0, "Run it once",
+               tasks.length ? fileHash(wb, tasks[0].path, false) : null,
+               "the Run form lives on the task's page")}
+        ${step((runs.graded || 0) > 0, "Grade the run",
+               runsHash(wb), "open the run and press Grade")}
+      </ol>
+      <p class="gs-tip">Then iterate: edit the grader and the dry-run panel
+        shows how the saved grades would change, before you commit the
+        rubric.</p>
+    </div>`;
+}
+
 function renderEditor(wb) {
   const box = document.getElementById("wb-editor");
   if (!box) return;
@@ -2897,6 +2941,7 @@ function renderEditor(wb) {
   }
   if (!wb.open) {
     box.innerHTML = `
+      ${gettingStartedHtml(wb)}
       <div class="ed-empty">
         <h3>Pick a file to edit</h3>
         <p>Tasks are a prompt plus any scalar data you like. Configs point
@@ -5324,6 +5369,7 @@ function renderResultsPane(wb) {
         ${wb.resultsTask ? `
           <a href="${compareHash(wb, wb.resultsTask)}">compare outputs →</a>
           <a href="${galleryHash(wb, { task: wb.resultsTask, grader: r.grader })}">gallery →</a>` : ""}
+        <a href="#/sweep?eval=${enc(wb.slug)}">sweep this eval →</a>
       </span>
     </div>
     ${wb.resultsErr ? `<div class="ed-err">${errorBox(wb.resultsErr)}</div>` : ""}
@@ -5540,9 +5586,9 @@ async function ensureComposeInputs(sw) {
     sw.modelsDoc ? Promise.resolve(sw.modelsDoc) : api("/api/models"),
   ]);
   sw.modelsDoc = modelsDoc;
+  const slugs = evals.map(e => e.slug);
   if (!sw.compose) {
     const saved = savedCompose();
-    const slugs = evals.map(e => e.slug);
     sw.compose = {
       evals: Array.isArray(saved?.evals)
         ? saved.evals.filter(s => slugs.includes(s)) : slugs,
@@ -5554,6 +5600,11 @@ async function ensureComposeInputs(sw) {
       graders: saved?.graders && typeof saved.graders === "object"
         ? saved.graders : {},
     };
+  }
+  if (sw.prefillEval) {
+    if (slugs.includes(sw.prefillEval)) sw.compose.evals = [sw.prefillEval];
+    sw.prefillEval = null;
+    saveCompose(sw);
   }
 }
 
@@ -6204,6 +6255,10 @@ function route() {
     stashWorkbench();
     state.wb = null;
     document.body.classList.remove("wb");
+    // "sweep this eval →" arrives as ?eval=<slug>; the compose form
+    // narrows its selection to that eval once its inputs are loaded
+    const pre = new URLSearchParams(hashQuery || "").get("eval");
+    if (pre) sweepsState().prefillEval = pre;
     return renderSweep();
   }
   const m = hashPath.match(
