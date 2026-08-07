@@ -301,8 +301,15 @@ def test_studio_html_wires_compare_view():
     # "no runs yet" empty state (same rail the runs list rides)
     assert html.count("wb.runsErr ?") >= 2
 
-    # entry points: the Results tab, the task view and the runs list header
-    assert html.count("compare outputs") >= 3
+    # entry points, now that the nav overhaul's eval-tabs bar covers the
+    # plain unscoped case (it just says "compare", no arrow - never
+    # matches this phrase): the task-mirror panel, the Results tab header
+    # (present in source even though it's now conditional on a task scope
+    # - see test_studio_html_results_head_compare_link_scoped_to_task),
+    # and Gallery's context note. The runs list header's duplicate got
+    # pruned; the run detail page's link reads "compare this task's
+    # outputs" instead, so it doesn't match this phrase either.
+    assert html.count("compare outputs") == 3
 
 
 def test_studio_html_wires_gallery_view():
@@ -333,9 +340,12 @@ def test_studio_html_wires_gallery_view():
     # rides the same rows: the runs list, Compare, and Gallery
     assert html.count("wb.runsErr ?") >= 3
 
-    # entry points: the Results tab header, the Compare header, and the
-    # Results tag rows (tag-scoped into the gallery)
-    assert html.count("gallery →") == 3
+    # entry points: the Results tab header and the Results tag rows
+    # (tag-scoped into the gallery). The Compare header's duplicate got
+    # pruned in the nav overhaul - the eval-tabs bar covers the unscoped
+    # case (it just says "gallery", no arrow) and Compare's own
+    # context-pane note already links onward with a task scope.
+    assert html.count("gallery →") == 2
 
 
 def test_studio_html_shelf_card_shows_run_totals():

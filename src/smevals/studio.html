@@ -4033,7 +4033,6 @@ function renderRunsList(wb, box) {
           <option value="started" ${wb.runsSort === "graded" ? "" : "selected"}>newest run</option>
           <option value="graded" ${wb.runsSort === "graded" ? "selected" : ""}>recently graded</option>
         </select>
-        <a href="${compareHash(wb, filter && filter.task)}">compare outputs →</a>
       </span>
     </div>
     ${filter ? `
@@ -4811,7 +4810,6 @@ function compareHtml(wb, tasks, graders) {
         esc(plural(rows.length, "card"))}${
           !wb.compareAll && allRows.length !== rows.length
             ? ` (of ${allRows.length})` : ""}</span>
-        <a href="${galleryHash(wb, { task: wb.compareTask, grader: wb.compareGrader })}">gallery →</a>
       </span>
     </div>
     <div class="cmp-controls">
@@ -5288,8 +5286,9 @@ function renderResultsPane(wb) {
           </select>` : graders.length === 1
             ? `<span class="bench-hint">grader: <b>${esc(r.grader)}</b></span>`
             : `<span class="bench-hint">no graders yet</span>`}
-        <a href="${compareHash(wb, wb.resultsTask)}">compare outputs →</a>
-        <a href="${galleryHash(wb, { task: wb.resultsTask, grader: r.grader })}">gallery →</a>
+        ${wb.resultsTask ? `
+          <a href="${compareHash(wb, wb.resultsTask)}">compare outputs →</a>
+          <a href="${galleryHash(wb, { task: wb.resultsTask, grader: r.grader })}">gallery →</a>` : ""}
       </span>
     </div>
     ${wb.resultsErr ? `<div class="ed-err">${errorBox(wb.resultsErr)}</div>` : ""}
