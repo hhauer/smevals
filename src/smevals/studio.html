@@ -5086,6 +5086,7 @@ function renderGalleryNote(wb, box) {
       <p>Each cell shows a run's representative image - a grade's own
          picture first, then the run's own image - sorted best score
          first under the active grader.</p>
+      <p><a href="${compareHash(wb, wb.galleryTask)}">compare outputs →</a></p>
       ${wb.galleryTask ? `<p><a href="${resultsHash(wb, wb.galleryTask)}">
          results for this task →</a></p>` : ""}
     </div>`;

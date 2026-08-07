@@ -450,6 +450,17 @@ def test_studio_html_results_head_compare_link_scoped_to_task():
     assert 'href="${compareHash(wb, wb.resultsTask)}"' in pane
 
 
+def test_studio_html_gallery_note_links_to_compare():
+    """Nav overhaul: Gallery's context pane (renderGalleryNote) gains a
+    "compare outputs" link into Gallery's own task scope, alongside its
+    existing "results for this task" link - the tab bar only reaches
+    Compare unscoped."""
+    html = studio.studio_html()
+    note = html.split("function renderGalleryNote(wb, box)")[1].split("\n}\n", 1)[0]
+    assert 'href="${compareHash(wb, wb.galleryTask)}"' in note
+    assert "compare outputs" in note
+
+
 def test_studio_html_read_surfaces_poll_continuously_outside_sweeps():
     """Batch 2 item 4: continuous auto-refresh outside sweeps - parity with
     the old dashboard's always-on 3s poll (app.html:738-770). READ surfaces
