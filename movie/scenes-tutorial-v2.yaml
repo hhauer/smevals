@@ -1,0 +1,240 @@
+# smevals studio tutorial v2 - centered on a REAL agentic eval (code-review).
+#
+# Jesse's brief: the old cut authored a toy palindrome eval with a stub
+# model; this one walks the real code-review eval - a genuinely agentic
+# prompt (review a commit, report defects), a real runner, real local
+# models, real grades - and tours the UI that shipped since: per-eval tab
+# bar, consolidated summaries, run-again, edit-grader links, per-task
+# leaderboards, recent-grades feed, pin-to-compare, gallery, sweep prefill.
+#
+# CARRIED-FORWARD PRODUCTION CONSTRAINTS (from the v1 header - all still true):
+# - The movie WRITES to the suite it runs against. NEVER record against the
+#   repo's examples/. Build a scratch suite that COPIES examples/code-review
+#   (with its runs/) and examples/pelican-riding-a-bicycle (with runs/) so
+#   the results/compare/gallery beats show real data. Setup script needed:
+#   movie-redo/setup_scratch_suite_v2.sh (to write; cp -R the two evals).
+# - `type` actions only ever type into fields that start EMPTY, or append
+#   at a click-placed caret. The prompt-edit beat APPENDS a sentence at the
+#   end of the prompt textarea (click end of text first).
+# - Scalar-field YAML trap: never type bool-lookalikes (Yes/No/On/Off)
+#   into form scalar fields.
+# - Token auth: record.js must ride the ?k= token (v1's patched record.js
+#   survives in movie/pipeline/record.js - the tmp cleaner ate narrate.sh/
+#   assemble.sh/scenes.js, which must be rebuilt; narrate against Kokoro
+#   via scratchpad/kokoro_gen.py, NOT macos `say`).
+# - NEW: the judge grader shells out to gpt-4.1 and the OpenAI account has
+#   no credits - the judge NEVER runs on camera; narration mentions it as
+#   the deferred second opinion only.
+# - NEW: real generation on camera - code-review runs take 1-5 min on
+#   local models. Scene run-it ENDS with the run in flight (queued/running
+#   visible via live auto-refresh); the next scene opens on the FINISHED
+#   run (operational gap between recording passes: wait for the run, no
+#   scene action needed). Model on camera: lfm2.5-2.6b-mlx (fastest local;
+#   honest narration says we picked a small fast one).
+# - Durations: narration word count / 2.5 wps, rounded up, min 4s.
+#   Kokoro OOV note: no espeak fallback - if the chosen voice mangles
+#   "smevals", replace with "S M evals" in the narrate step's input text
+#   only (not in this file).
+
+resolution: { width: 1920, height: 1080 }
+fps: 30
+base_url: http://127.0.0.1:7021
+
+scenes:
+  # ---- 1: title -------------------------------------------------------
+  - id: title
+    type: title
+    title: smevals studio
+    subtitle: real evals, real models, one browser tab
+    duration: 4
+
+  # ---- 2: shelf cold open --------------------------------------------
+  - id: shelf
+    type: browser
+    narration: >-
+      This is smevals studio. Every card is an Eval: a plain directory of
+      tasks, configs, and graders, with an executable runner script. The
+      cards tell you where things stand - how many runs, how many graded,
+      and the best model so far. This one, code-review, hands a model a
+      real commit with planted defects and asks for a code review. Let's
+      open it.
+    actions:
+      - goto: /
+      - wait_for: .shelf-grid
+      - pause: 24000
+
+  # ---- 3: landing summary + tab bar ----------------------------------
+  - id: eval-landing
+    type: browser
+    narration: >-
+      An Eval opens on its summary: what was tested, and how it was
+      graded - every task's prompt and every grader's check pipeline,
+      readable without opening a single file. And across the top, the
+      whole Eval is one tab away: files, runs, results, compare, gallery.
+    actions:
+      - goto: /#/eval/code-review
+      - wait_for: .eval-tabs
+      - pause: 17000
+
+  # ---- 4: the real agentic prompt ------------------------------------
+  - id: author-prompt
+    type: browser
+    narration: >-
+      Here's the actual prompt. You are reviewing a single commit to a
+      TypeScript codebase - the complete pre-change file, then the
+      unified diff. Report every defect you're confident is real, and
+      don't pad the review with speculative nitpicks. That last line is
+      doing real work: it's what separates a model that reads code from
+      one that hedges. The prompt is just a field in a YAML file, so
+      let's raise the bar - ask for line numbers with every finding.
+      Watch the environment mirror on the right: every field you type
+      becomes an environment variable the runner will receive, exactly
+      as shown.
+    actions:
+      - goto: /#/eval/code-review
+      - wait_for: "#wb-tree"
+      - pause: 500
+      - click: '.tree-item[data-path="tasks/float-money.yaml"]'
+      - wait_for: 'textarea[data-kp="prompt"]'
+      - pause: 14000
+      - append:
+          selector: 'textarea[data-kp="prompt"]'
+          text: " Cite the exact line number for every defect you report."
+      - pause: 8000
+
+  # ---- 5: the runner contract ----------------------------------------
+  - id: runner-contract
+    type: browser
+    narration: >-
+      Who receives that prompt? The runner - a twenty-line shell script,
+      not a framework. smevals hands it the model name, the prompt, and a
+      working directory, all as environment variables. It calls the
+      model, saves the response, and exits non-zero if anything smells
+      wrong - an empty response is a harness problem, not model evidence,
+      so it's failed and excluded rather than quietly graded. Anything it
+      writes to its directory is kept as an artifact.
+    actions:
+      - goto: /#/eval/code-review
+      - wait_for: "#wb-tree"
+      - pause: 500
+      - click: '.tree-item[data-path="run-llm"]'
+      - wait_for: "#wb-editor"
+      - pause: 22000
+
+  # ---- 6: run it (ends in flight) ------------------------------------
+  - id: run-it
+    type: browser
+    narration: >-
+      The run form lives right on the task's page. Pick a model - we'll
+      use a small fast local one so nobody waits - and press Run. That's
+      a real subprocess, a real model, running right now. The runs list
+      updates live as it lands; no refresh button, no polling by hand.
+    actions:
+      - goto: /#/eval/code-review
+      - wait_for: "#wb-tree"
+      - pause: 500
+      - click: '.tree-item[data-path="tasks/float-money.yaml"]'
+      - wait_for: "#bench-model"
+      - pause: 3000
+      - type: { selector: "#bench-model", text: "lfm2.5-2.6b-mlx" }
+      - pause: 1000
+      - click: "#bench-go"
+      - pause: 12000
+
+  # ---- 7: read the review, grade it ----------------------------------
+  # OPERATIONAL: wait for the run started in scene 6 to finish before
+  # recording this scene; open the newest float-money run.
+  - id: read-and-grade
+    type: browser
+    narration: >-
+      Here's what the model wrote - an actual code review, findings and
+      reasoning, saved as plain text in the run directory. Grade it: the
+      default grader parses the findings out of the prose, then matches
+      them against the task's answer key. If you ever disagree with a
+      grade, the rubric is one click away - edit grader, right there.
+      And if you want another sample from the same model, Run again is
+      one click too.
+    actions:
+      - goto: /#/eval/code-review/runs
+      - wait_for: .run-row
+      - pause: 3000
+      - click: .run-row
+      - wait_for: "#run-again"
+      - pause: 8000
+      - click: "[data-grade='default']"
+      - pause: 12000
+
+  # ---- 8: results - per-task leaderboard + feed -----------------------
+  - id: results
+    type: browser
+    narration: >-
+      The Results tab ranks every model that's run this Eval - mean
+      score, pass rate, and how sure we can be given the sample size.
+      Scope it to a single task and the ranking re-computes for just
+      that task; the address bar keeps the scope, so the view is a
+      link you can share. Below, a feed of what was graded most
+      recently, each entry one click from its run.
+    actions:
+      - goto: /#/eval/code-review/results
+      - wait_for: "#results-task"
+      - pause: 10000
+      - select: { selector: "#results-task", value: "float-money" }
+      - wait_for: .lb-row
+      - pause: 9000
+      - select: { selector: "#results-task", value: "" }
+      - pause: 6000
+
+  # ---- 9: compare - pin two reviews ----------------------------------
+  - id: compare
+    type: browser
+    narration: >-
+      Compare puts one task's output from every run on a single screen.
+      Pin two cards and you get the full reviews side by side - where
+      one model caught the floating-point money bug and the other
+      wandered off into style advice, you'll see it in the same
+      breath.
+    actions:
+      - goto: /#/eval/code-review/compare?task=float-money
+      - wait_for: .cmp-card
+      - pause: 8000
+      - click: "[data-pin]"
+      - pause: 1500
+      - click: ".cmp-card:nth-child(2) .cmp-pin"
+      - wait_for: .cmp-panel
+      - pause: 10000
+
+  # ---- 10: gallery closer --------------------------------------------
+  - id: gallery
+    type: browser
+    narration: >-
+      And when an Eval's output is a picture, the gallery is the whole
+      Eval at a glance - every run's image, best scores first. Eight
+      models were asked for a pelican riding a bicycle. Some of them
+      even managed it.
+    actions:
+      - goto: /#/eval/pelican-riding-a-bicycle/gallery
+      - wait_for: .gal-cell
+      - pause: 13000
+
+  # ---- 11: sweep tease ------------------------------------------------
+  - id: sweep-tease
+    type: browser
+    narration: >-
+      When one run isn't enough, sweep this eval - the composer arrives
+      already scoped, pick your models and a sample size, and the matrix
+      fills itself in, live, cell by cell. That's a longer story; the
+      README tells it properly.
+    actions:
+      - goto: /#/eval/code-review/results
+      - wait_for: .eval-tabs
+      - pause: 2000
+      - click: 'text=sweep this eval →'
+      - wait_for: "#sweep-compose"
+      - pause: 10000
+
+  # ---- 12: closing ----------------------------------------------------
+  - id: closing
+    type: title
+    title: smevals
+    subtitle: plain files, real models, honest grades · github.com/prime-radiant-inc/smevals
+    duration: 5
