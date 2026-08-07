@@ -426,6 +426,20 @@ def test_studio_html_eval_tabs_nav():
     assert "aria-current" in html
 
 
+def test_studio_html_run_detail_crosslinks_to_compare_and_results():
+    """Nav overhaul: a run detail page's context pane (renderRunNote, the
+    run's task companion) links onward into this run's task scope on
+    Compare and Results - the tab bar only reaches those unscoped, so the
+    scoped deep link has to live here, alongside the existing "all runs of
+    this task" pivot into the runs list."""
+    html = studio.studio_html()
+    note = html.split("function renderRunNote(wb, box, row)")[1].split("\n}\n", 1)[0]
+    assert 'href="${compareHash(wb, row.task)}"' in note
+    assert "compare this task's outputs" in note
+    assert 'href="${resultsHash(wb, row.task)}"' in note
+    assert "results for this task" in note
+
+
 def test_studio_html_read_surfaces_poll_continuously_outside_sweeps():
     """Batch 2 item 4: continuous auto-refresh outside sweeps - parity with
     the old dashboard's always-on 3s poll (app.html:738-770). READ surfaces

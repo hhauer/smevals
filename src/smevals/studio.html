@@ -4229,6 +4229,8 @@ function renderRunNote(wb, box, row) {
         task in the editor →</a></p>` : ""}
       ${row.task ? `<p><a href="${runsFilterHash(wb, { task: row.task })}">all
         runs of this task →</a></p>` : ""}
+      ${row.task ? `<p><a href="${compareHash(wb, row.task)}">compare this task's outputs →</a></p>` : ""}
+      ${row.task ? `<p><a href="${resultsHash(wb, row.task)}">results for this task →</a></p>` : ""}
       <p>Grade or regrade with any grader from the panel on the left; a
          grade never changes the run itself.</p>
     </div>`;
