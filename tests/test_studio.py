@@ -305,6 +305,39 @@ def test_studio_html_wires_compare_view():
     assert html.count("compare outputs") >= 3
 
 
+def test_studio_html_wires_gallery_view():
+    """The Gallery surface (#/eval/<slug>/gallery) - every run's
+    representative image on one screen, task/tag/grader-scoped - the
+    "just show me the pictures" view app.html's old dashboard offered
+    (app.html:342-367, 495-502). Rides the same /runs rows every other
+    bench surface already fetches via ensureRuns, and reuses Compare's
+    compareVisual verbatim for the per-row picture (grade raster > grade
+    svg > run-dir image) - never a forked artifact renderer."""
+    html = studio.studio_html()
+
+    # routed as a workbench surface, with task/tag/grader carried in the URL
+    assert "(\\/gallery)" in html
+    assert "galleryHash" in html
+    assert "renderGalleryPane" in html
+
+    # the contact sheet's controls, and the paint cap + its expander
+    for control in ("gal-task", "gal-grader", "gal-grid", "gal-cell", "data-gal-more"):
+        assert control in html
+    assert "GALLERY_CAP" in html
+
+    # the representative-visual picker is reused, not forked: its
+    # declaration, Compare's call site, and Gallery's call site
+    assert html.count("compareVisual(") >= 3
+
+    # a failed /runs fetch must surface as an error in every surface that
+    # rides the same rows: the runs list, Compare, and Gallery
+    assert html.count("wb.runsErr ?") >= 3
+
+    # entry points: the Results tab header, the Compare header, and the
+    # Results tag rows (tag-scoped into the gallery)
+    assert html.count("gallery →") == 3
+
+
 def test_studio_html_shelf_card_shows_run_totals():
     """Batch 1 item 1: shelf cards show run/graded/fail counts - parity with
     the old dashboard's "<b>N</b> runs · <b>M</b> graded" line (app.html:
