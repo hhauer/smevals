@@ -2666,3 +2666,163 @@ def test_studio_html_poll_and_grade_state_survive_rerenders():
     # into one rAF-batched re-render instead of one per image
     assert "GALLERY_CHUNK" in html
     assert html.count("scheduleBenchRender(") >= 3
+
+
+# --- GET /api/models: LM Studio inventory edge cases ------------------------
+
+# sweep.parse_lms_ls - the only thing standing between `lms ls`'s human-
+# oriented text and this endpoint - is unit-tested directly in
+# test_sweep.py against tests/real-lms-ls.txt, a verbatim capture of a
+# real `lms ls` (confirmed against a fresh capture on this machine while
+# writing these tests: same two-section LLM/EMBEDDING layout, blank-line
+# section boundaries, " (N variant)" suffixes, slash-namespaced ids like
+# "google/gemma-4-31b-qat", and a "✓ LOADED" DEVICE-column marker). These
+# tests cover shapes that fixture doesn't - an empty roster, a header with
+# no rows under it, and a nonzero exit - through /api/models, studio.py's
+# only caller of that parser, so a regression in the wiring (not just the
+# parser) would be caught here.
+
+
+def write_fake_lms(bin_dir, script_body):
+    "A fake `lms` executable at bin_dir/lms running script_body"
+    write_executable(bin_dir / "lms", python_script(script_body))
+
+
+def isolate_from_real_llm(monkeypatch, bin_dir):
+    "PATH holds only bin_dir, so /api/models never shells out to a real `llm`"
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+
+def test_models_lms_empty_roster_is_local_empty(server, monkeypatch, tmp_path):
+    "A from-scratch LM Studio install with zero downloaded models"
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    write_fake_lms(
+        bin_dir,
+        """\
+        import sys
+        if sys.argv[1:2] == ["ls"]:
+            print()
+            print("You have 0 models, taking up 0.00 GB of disk space.")
+            print()
+        """,
+    )
+    isolate_from_real_llm(monkeypatch, bin_dir)
+    isolate_from_real_lms(monkeypatch, tmp_path)
+
+    get, *_ = server
+    status, _, body = get("/api/models")
+    assert status == 200
+    data = json.loads(body)
+    assert data["local"] == []
+    assert set(data["models"]) == {"gpt-4.1-mini"}  # configs only
+
+
+def test_models_lms_header_only_is_local_empty(server, monkeypatch, tmp_path):
+    "An LLM section header with no model rows beneath it before the blank line"
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    write_fake_lms(
+        bin_dir,
+        """\
+        import sys
+        if sys.argv[1:2] == ["ls"]:
+            print()
+            print("You have 0 models, taking up 0.00 GB of disk space.")
+            print()
+            print("LLM        PARAMS    ARCH    SIZE    DEVICE")
+            print()
+        """,
+    )
+    isolate_from_real_llm(monkeypatch, bin_dir)
+    isolate_from_real_lms(monkeypatch, tmp_path)
+
+    get, *_ = server
+    status, _, body = get("/api/models")
+    assert status == 200
+    data = json.loads(body)
+    assert data["local"] == []
+    assert set(data["models"]) == {"gpt-4.1-mini"}
+
+
+def test_models_lms_local_model_with_slash(server, monkeypatch, tmp_path):
+    "A slash-namespaced model id, as real `lms ls` output has (google/gemma-4-31b-qat)"
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    write_fake_lms(
+        bin_dir,
+        """\
+        import sys
+        if sys.argv[1:2] == ["ls"]:
+            print()
+            print("You have 1 models, taking up 5.00 GB of disk space.")
+            print()
+            print("LLM        PARAMS    ARCH    SIZE    DEVICE")
+            print("acme-labs/widget-7b (1 variant)    7B    llama    5.00 GB    Local")
+            print()
+        """,
+    )
+    isolate_from_real_llm(monkeypatch, bin_dir)
+    isolate_from_real_lms(monkeypatch, tmp_path)
+
+    get, *_ = server
+    status, _, body = get("/api/models")
+    assert status == 200
+    data = json.loads(body)
+    assert data["local"] == ["acme-labs/widget-7b"]
+    assert set(data["models"]) == {"acme-labs/widget-7b", "gpt-4.1-mini"}
+
+
+def test_models_lms_exit_nonzero_is_best_effort(server, monkeypatch, tmp_path):
+    "A broken/erroring `lms ls` contributes nothing - /api/models never errors"
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    write_fake_lms(bin_dir, "import sys\nsys.exit(1)\n")
+    isolate_from_real_llm(monkeypatch, bin_dir)
+    isolate_from_real_lms(monkeypatch, tmp_path)
+
+    get, *_ = server
+    status, _, body = get("/api/models")
+    assert status == 200
+    data = json.loads(body)
+    assert data["local"] == []
+    assert set(data["models"]) == {"gpt-4.1-mini"}
+
+
+def test_models_dedupes_and_sorts_across_llm_and_lms(server, monkeypatch, tmp_path):
+    "The same model id from both `llm` and `lms` appears exactly once, sorted"
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    write_executable(
+        bin_dir / "llm",
+        python_script("""\
+            import sys
+            if sys.argv[1:3] == ["models", "list"]:
+                print("Default: shared-model")
+            """),
+    )
+    write_fake_lms(
+        bin_dir,
+        """\
+        import sys
+        if sys.argv[1:2] == ["ls"]:
+            print()
+            print("You have 2 models, taking up 10.00 GB of disk space.")
+            print()
+            print("LLM        PARAMS    ARCH    SIZE    DEVICE")
+            print("shared-model    7B    llama    5.00 GB    Local")
+            print("only-local-model    7B    llama    5.00 GB    Local")
+            print()
+        """,
+    )
+    isolate_from_real_llm(monkeypatch, bin_dir)
+    isolate_from_real_lms(monkeypatch, tmp_path)
+
+    get, *_ = server
+    status, _, body = get("/api/models")
+    assert status == 200
+    data = json.loads(body)
+    assert data["local"] == sorted(["shared-model", "only-local-model"])
+    assert data["models"] == sorted(
+        ["shared-model", "only-local-model", "gpt-4.1-mini"]
+    )
