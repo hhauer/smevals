@@ -2889,3 +2889,25 @@ def test_studio_html_empty_states_link_to_task_run():
     assert "fileHash(wb, `tasks/${wb.compareTask}.yaml`" in html
     assert "fileHash(wb, `tasks/${wb.resultsTask}.yaml`" in html
     assert "taskNames(wb).includes(wb.compareTask)" in html
+
+
+def test_studio_html_landing_pane_getting_started_checklist():
+    """Batch B item 3: the eval landing pane walks a new author through
+    task -> grader -> first run -> first grade with state-aware checks,
+    and gets out of the way once the eval has a graded run."""
+    html = studio.studio_html()
+    assert "gettingStartedHtml" in html
+    assert "Getting started" in html
+    assert "wb.info.runs?.graded" in html
+    assert "Run it once" in html
+    assert "Grade the run" in html
+
+
+def test_studio_html_results_sweep_this_eval_link():
+    """Batch B item 4: Results links to the sweep composer prefilled
+    with this eval - #/sweep?eval=<slug> narrows the compose selection
+    to just that eval (when it still exists)."""
+    html = studio.studio_html()
+    assert "sweep this eval →" in html
+    assert "#/sweep?eval=${enc(wb.slug)}" in html
+    assert "prefillEval" in html
