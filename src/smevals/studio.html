@@ -378,6 +378,24 @@ body.wb header { padding-block: var(--sp-5) var(--sp-4); }
   color: var(--text-3);
   white-space: nowrap;
 }
+.eval-tabs {
+  display: flex;
+  gap: var(--sp-4);
+  margin: 0 0 var(--sp-3);
+  font-family: var(--font-mono);
+}
+.eval-tabs a {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  padding-bottom: 3px;
+  border-bottom: 2px solid transparent;
+}
+.eval-tabs a:hover { color: var(--text); text-decoration: none; }
+.eval-tabs a[aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
 .wb-facts {
   margin: calc(-1 * var(--sp-2)) 0 var(--sp-4);
   font-family: var(--font-mono);
@@ -2731,6 +2749,7 @@ function renderShell(wb) {
       ${problems ? `<span class="badge-warn">${esc(plural(problems, "problem"))}</span>` : ""}
       <span class="wb-hint">⌘S saves · files live in your working tree</span>
     </div>
+    ${evalTabsHtml(wb)}
     ${wbFactsHtml(wb)}
     <div class="wb-grid">
       <nav class="card pane pane-tree" id="wb-tree" aria-label="Files"></nav>
@@ -2739,8 +2758,28 @@ function renderShell(wb) {
     </div>`;
 }
 
+// The per-eval tab bar - files/runs/results/compare/gallery, one click
+// away regardless of the current sub-surface, parity with the header's
+// eval switcher but scoped to this eval's own sections. Every tab is an
+// unscoped destination: task/tag scopes are eval-specific and belong to
+// the entry links within a surface (renderRunNote, renderGalleryNote,
+// ...), not this always-visible bar. Drawn once by renderShell, since the
+// shell persists across sub-surface switches; syncEvalTabs (below
+// renderPanes) is what keeps the active tab honest afterward.
+function evalTabsHtml(wb) {
+  return `
+    <nav class="eval-tabs" aria-label="Eval sections">
+      <a href="${fileHash(wb, null, false)}" data-tab="files">files</a>
+      <a href="${runsHash(wb)}" data-tab="runs">runs</a>
+      <a href="${resultsHash(wb)}" data-tab="results">results</a>
+      <a href="${compareHash(wb)}" data-tab="compare">compare</a>
+      <a href="${galleryHash(wb, {})}" data-tab="gallery">gallery</a>
+    </nav>`;
+}
+
 function renderPanes(wb) {
   renderHeadBadge(wb);
+  syncEvalTabs(wb);
   renderTree(wb);
   if (wb.surface && wb.surface.runs) renderRunsPane(wb);
   else if (wb.surface && wb.surface.results) renderResultsPane(wb);
@@ -2748,6 +2787,26 @@ function renderPanes(wb) {
   else if (wb.surface && wb.surface.gallery) renderGalleryPane(wb);
   else renderEditor(wb);
   renderContext(wb);
+}
+
+// Patches the eval-tabs nav's active state in place - the nav itself
+// draws once in renderShell above, and renderPanes runs on every
+// sub-surface switch without redrawing it. "runs" covers both the runs
+// list and a run detail page (both set wb.surface.runs); everything else
+// not otherwise flagged is a file surface (an open file or none at all).
+function syncEvalTabs(wb) {
+  const nav = view.querySelector(".eval-tabs");
+  if (!nav) return;
+  const surface = wb.surface || {};
+  const active = surface.runs ? "runs"
+    : surface.results ? "results"
+    : surface.compare ? "compare"
+    : surface.gallery ? "gallery"
+    : "files";
+  nav.querySelectorAll("a").forEach(a => {
+    if (a.dataset.tab === active) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
 }
 
 // The light bench refresh: everything runs data feeds, but never the
