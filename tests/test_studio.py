@@ -676,9 +676,9 @@ def test_studio_html_run_detail_run_again_reuses_bench_run():
     html = studio.studio_html()
 
     assert "async function startBenchRun(wb, { task, config, model })" in html
-    core = html.split(
-        "async function startBenchRun(wb, { task, config, model })"
-    )[1].split("\n}\n", 1)[0]
+    core = html.split("async function startBenchRun(wb, { task, config, model })")[
+        1
+    ].split("\n}\n", 1)[0]
     assert "/api/evals/${enc(wb.slug)}/run" in core
     assert "pollJob(wb, job.id)" in core
     assert "renderBenchSurfaces(wb)" in core

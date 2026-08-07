@@ -4080,10 +4080,22 @@ function renderRunDetail(wb, box) {
     ? `<a class="meta-link" href="${runsFilterHash(wb, { [key]: value })}"
          title="${esc(`all runs with this ${key}`)}">${esc(value)}</a>`
     : `<span>?</span>`;
+  const jobBusy = wb.job && (wb.job.status === "queued" || wb.job.status === "running");
+  const configGone = !configNames(wb).includes(row.config);
   box.innerHTML = `
     <div class="ed-head">
       <span class="ed-path"><a href="${runsHash(wb)}">runs</a> /&nbsp;${esc(row.run)}</span>
+      <span class="ed-actions">
+        <button type="button" class="btn btn-sm btn-ghost" id="run-again"
+                ${jobBusy || configGone ? "disabled" : ""}
+                title="${esc(configGone
+                  ? `config ${row.config} no longer exists`
+                  : jobBusy ? "a run is already in flight"
+                  : "start a fresh run of this task/config/model")}">
+          ${jobBusy ? "Running…" : "Run again"}</button>
+      </span>
     </div>
+    ${wb.benchErr ? `<div class="ed-err">${errorBox(wb.benchErr)}</div>` : ""}
     <div class="run-view">
       <div class="run-meta">
         <span class="ok-dot${runOk(row) ? "" : " bad"}"></span>
@@ -4105,6 +4117,8 @@ function renderRunDetail(wb, box) {
   bindFolds(wb, box);
   bindGradeButtons(wb, box);
   bindArtifacts(wb, box);
+  box.querySelector("#run-again")?.addEventListener("click", () =>
+    startBenchRun(wb, { task: row.task, config: row.config, model: row.model }));
 }
 
 function runGradesHtml(wb, row) {
@@ -4123,6 +4137,8 @@ function runGradesHtml(wb, row) {
             <span class="rg-name">${esc(name)}</span>
             ${g ? gradeChip(name, g, true)
                 : `<span class="rg-none">not graded yet</span>`}
+            <a class="meta-link" href="${fileHash(wb, `graders/${name}.yaml`, false)}"
+               title="${esc(`open graders/${name}.yaml - tighten the rubric`)}">edit grader →</a>
             ${failed ? "" : (() => {
               const inflight = wb.grading.has(`${row.run}\u0000${name}`);
               return `
@@ -4373,27 +4389,40 @@ function bindBenchRun(wb, buf, box) {
   bindArtifacts(wb, box);
 }
 
-async function startRun(wb, buf) {
+// The one POST/poll core every run affordance rides - the task-mirror's
+// Run form and the run detail's "Run again" both land here rather than
+// keeping their own copies.
+async function startBenchRun(wb, { task, config, model }) {
   wb.benchErr = null;
   try {
     const job = await api(`/api/evals/${enc(wb.slug)}/run`, {
       body: {
-        task: fileStem(buf.path),
-        config: wb.mirrorConfig,
+        task,
+        config,
         // blank falls back to the config's default; the server rejects
         // honestly when there is neither
-        model: (wb.bench.model || "").trim() || null,
+        model: (model || "").trim() || null,
       },
     });
     if (state.wb !== wb) return;
     wb.job = job;
     renderContext(wb);
+    renderBenchSurfaces(wb);
     pollJob(wb, job.id);
   } catch (ex) {
     if (state.wb !== wb) return;
     wb.benchErr = ex.message;
     renderContext(wb);
+    renderBenchSurfaces(wb);
   }
+}
+
+async function startRun(wb, buf) {
+  await startBenchRun(wb, {
+    task: fileStem(buf.path),
+    config: wb.mirrorConfig,
+    model: wb.bench.model,
+  });
 }
 
 async function pollJob(wb, jobId) {
@@ -4844,6 +4873,9 @@ function compareHtml(wb, tasks, graders) {
         <h3>No runs yet for this task</h3>
         <p>Run <b>${esc(wb.compareTask)}</b> with a config to see its
            outputs here, side by side with every other run.</p>
+        ${taskNames(wb).includes(wb.compareTask) ? `
+          <p><a href="${fileHash(wb, `tasks/${wb.compareTask}.yaml`, false)}"
+            >open the task to run it →</a></p>` : ""}
       </div>`}`;
 }
 
@@ -5134,9 +5166,12 @@ function competitionRanks(groups) {
   return ranks;
 }
 
-function leaderboardHtml(groups) {
+function leaderboardHtml(wb, groups) {
   if (!groups.length) {
-    return `<div class="lb-empty">No graded runs yet under this grader.</div>`;
+    return `<div class="lb-empty">No graded runs yet under this grader.${
+      wb.resultsTask && taskNames(wb).includes(wb.resultsTask) ? `
+        <a href="${fileHash(wb, `tasks/${wb.resultsTask}.yaml`, false)}"
+          >open the task to run it →</a>` : ""}</div>`;
   }
   const ranks = competitionRanks(groups);
   return groups.map((g, i) => `
@@ -5303,7 +5338,7 @@ function renderResultsPane(wb) {
       <div class="results-body">
         <div class="results-section">
           <h3>Leaderboard</h3>
-          ${leaderboardHtml(r.groups)}
+          ${leaderboardHtml(wb, r.groups)}
         </div>
         <div class="results-section">
           <h3>Recently graded</h3>
