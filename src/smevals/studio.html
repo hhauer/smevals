@@ -1226,6 +1226,9 @@ a.meta-link:hover { color: var(--accent); text-decoration-style: solid; }
 }
 .lb-score .stderr { color: var(--text-3); font-weight: 400; }
 .lb-empty { font-size: var(--fs-sm); color: var(--text-3); font-style: italic; padding: var(--sp-2) 0; }
+.tagshare-line { display: flex; align-items: center; gap: var(--sp-2); }
+.tagshare-line .tagshare-row { flex: 1; min-width: 0; }
+.tagshare-gal { flex: none; font-size: var(--fs-xs); white-space: nowrap; }
 .tagshare-row { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); padding: 3px 0; }
 /* as a button: a tag chip pivots into the runs list filtered to that tag */
 button.tagshare-row {
@@ -1411,6 +1414,52 @@ button.tagshare-row:hover .tagshare-name { color: var(--accent); }
   .cmp-col { border-right: none; border-bottom: 1px solid var(--line); }
   .cmp-col:last-child { border-bottom: none; }
 }
+
+/* ---- gallery: pure image contact sheet, tighter than the compare grid ----- */
+.gal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4) var(--sp-5);
+}
+.gal-cell {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  color: inherit;
+}
+.gal-cell:hover {
+  text-decoration: none;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  box-shadow: var(--shadow);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .gal-cell { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+}
+.gal-img {
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.gal-img img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.gal-cap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.gal-model { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.gal-more-wrap { padding: 0 var(--sp-4) var(--sp-5); }
 
 /* ---- global results matrix ------------------------------------------------ */
 .matrix-wrap { overflow-x: auto; padding: var(--sp-2) var(--sp-2) var(--sp-3); }
@@ -2506,6 +2555,10 @@ async function loadWorkbench(slug) {
     // side-by-side panel) - all local, no server round-trip of its own
     compareTask: null, compareGrader: null, compareSort: "score",
     compareAll: false, pinned: new Set(), pinnedTask: null,
+    // gallery surface state: task/tag/grader scope (each seeded once from
+    // the URL by renderWorkbench, then local like compareTask/Grader
+    // above) and galleryAll, the GALLERY_CAP expander's local toggle
+    galleryTask: null, galleryTag: null, galleryGrader: null, galleryAll: false,
   };
   state.wb = wb;
   view.innerHTML = `<div class="crumb"><a href="#/">← shelf</a></div>`;
@@ -2595,6 +2648,15 @@ async function renderWorkbench(slug, surface) {
   wb.surface = surface;
   if (surface.runs) wb.runsFilter = surface.filter || null;
   if (surface.compare && surface.task) wb.compareTask = surface.task;
+  // Gallery's task/tag/grader all ride the URL as one-time seeds on entry
+  // (an entry link is the only thing that sets them) - after that they're
+  // local, like compareTask/compareGrader above, so the gal-task/gal-grader
+  // selects don't fight a URL that no longer changes underneath them.
+  if (surface.gallery) {
+    if (surface.task) wb.galleryTask = surface.task;
+    if (surface.tag) wb.galleryTag = surface.tag;
+    if (surface.grader) wb.galleryGrader = surface.grader;
+  }
   // Batch 3 item 6: the Results tab's task scope is URL-driven, unlike
   // Compare's (which keeps whatever was last picked when the URL omits
   // it) - the base /results hash always means "all tasks". A scope
@@ -2678,6 +2740,7 @@ function renderPanes(wb) {
   if (wb.surface && wb.surface.runs) renderRunsPane(wb);
   else if (wb.surface && wb.surface.results) renderResultsPane(wb);
   else if (wb.surface && wb.surface.compare) renderComparePane(wb);
+  else if (wb.surface && wb.surface.gallery) renderGalleryPane(wb);
   else renderEditor(wb);
   renderContext(wb);
 }
@@ -2689,6 +2752,7 @@ function renderBenchSurfaces(wb) {
   if (wb.surface && wb.surface.runs) renderRunsPane(wb);
   else if (wb.surface && wb.surface.results) renderResultsPane(wb);
   else if (wb.surface && wb.surface.compare) renderComparePane(wb);
+  else if (wb.surface && wb.surface.gallery) renderGalleryPane(wb);
   renderContext(wb);
 }
 
@@ -3348,6 +3412,7 @@ function renderContext(wb) {
   }
   if (wb.surface && wb.surface.results) return renderResultsNote(wb, box);
   if (wb.surface && wb.surface.compare) return renderCompareNote(wb, box);
+  if (wb.surface && wb.surface.gallery) return renderGalleryNote(wb, box);
   const buf = wb.open && wb.buffers.get(wb.open);
   const kind = buf ? pure.docKind(buf.path) : null;
   if (kind === "task") return renderTaskMirror(wb, buf, box);
@@ -4651,7 +4716,9 @@ function compareHtml(wb, tasks, graders) {
       <span class="ed-actions"><span class="bench-hint">${
         esc(plural(rows.length, "card"))}${
           !wb.compareAll && allRows.length !== rows.length
-            ? ` (of ${allRows.length})` : ""}</span></span>
+            ? ` (of ${allRows.length})` : ""}</span>
+        <a href="${galleryHash(wb, { task: wb.compareTask, grader: wb.compareGrader })}">gallery →</a>
+      </span>
     </div>
     <div class="cmp-controls">
       <label class="bench-hint" for="cmp-task">task</label>
@@ -4763,6 +4830,168 @@ function renderCompareNote(wb, box) {
     </div>`;
 }
 
+// --- gallery surface (#/eval/<slug>/gallery) --------------------------------
+//
+// Every run's representative image on one screen, task/tag/grader-scoped -
+// the "just show me the pictures" view the old dashboard's own gallery
+// offered (app.html:342-367, 495-502). Reuses compareVisual verbatim for
+// each row's picture (grade raster > grade svg > run-dir image) rather than
+// forking an artifact renderer, and rides the same /runs rows every other
+// bench surface already fetches via ensureRuns - no endpoint of its own.
+
+// task/tag/grader: preselect scope on the Gallery surface, the same idiom
+// as compareHash/resultsHash - each entry link seeds exactly the scope it
+// already has (Compare's task+grader, Results' task, a tag row's tag+grader)
+const galleryHash = (wb, opts = {}) => {
+  const params = new URLSearchParams();
+  if (opts.task) params.set("task", opts.task);
+  if (opts.tag) params.set("tag", opts.tag);
+  if (opts.grader) params.set("grader", opts.grader);
+  const q = params.toString();
+  return `#/eval/${enc(wb.slug)}/gallery${q ? `?${q}` : ""}`;
+};
+
+// First paint fetches at most this many blobs; the "All N images →"
+// expander (data-gal-more) lifts the cap locally - the rows are already in
+// hand, so lifting it costs no new /runs fetch, only the deferred /raw ones.
+const GALLERY_CAP = 12;
+
+// Same bucketing every cell sorts by: scored beats ungraded beats failed -
+// compareScore alone can't tell "never graded" from "failed", so a failed
+// run would otherwise rank ahead of an ungraded-but-successful one.
+function galleryBucket(row, grader) {
+  if (!runOk(row)) return 2;
+  return grader && (row.grades || {})[grader] ? 0 : 1;
+}
+
+// Every run with a representative image, task/tag-filtered and sorted
+// best-score-first under the active grader - compareVisual decides what
+// counts as "the" image per row, the exact rule Compare's cards use.
+function galleryEntries(wb) {
+  let rows = wb.runs || [];
+  if (wb.galleryTask) rows = rows.filter(r => r.task === wb.galleryTask);
+  if (wb.galleryTag) rows = rows.filter(r => rowHasTag(r, wb.galleryTag, wb.galleryGrader));
+  return rows
+    .map(row => ({ row, visual: compareVisual(row, wb.galleryGrader) }))
+    .filter(e => e.visual.kind === "image")
+    .sort((a, b) => {
+      const ba = galleryBucket(a.row, wb.galleryGrader);
+      const bb = galleryBucket(b.row, wb.galleryGrader);
+      return ba !== bb ? ba - bb
+        : compareScore(b.row, wb.galleryGrader) - compareScore(a.row, wb.galleryGrader);
+    });
+}
+
+function galleryCellHtml(wb, entry) {
+  const { row, visual } = entry;
+  const grader = wb.galleryGrader;
+  const g = grader && (row.grades || {})[grader];
+  const blob = ensureRawBlob(wb, visual.rel);
+  return `
+    <a class="gal-cell" href="${runHash(wb, row.run)}">
+      <div class="gal-img">${
+        blob === null ? `<div class="cmp-vis-wait">loading…</div>`
+        : blob.err ? `<div class="cmp-vis-wait">couldn't load ${esc(visual.name)}</div>`
+        : `<img loading="lazy" src="${esc(blob.url)}" alt="${esc(visual.name)}">`}
+      </div>
+      <div class="gal-cap">
+        <span class="gal-model">${esc(row.model ?? "?")}</span>
+        ${g ? gradeChip(grader, g, true)
+            : runOk(row) ? `<span class="rg-none">ungraded</span>`
+            : `<span class="chip-grade fail">failed</span>`}
+      </div>
+    </a>`;
+}
+
+function galleryHtml(wb, tasks, graders) {
+  const entries = galleryEntries(wb);
+  const shown = wb.galleryAll ? entries : entries.slice(0, GALLERY_CAP);
+  return `
+    <div class="ed-head">
+      <span class="ed-path">gallery</span>
+      <span class="ed-actions"><span class="bench-hint">${
+        esc(plural(entries.length, "image"))}</span></span>
+    </div>
+    <div class="cmp-controls">
+      <label class="bench-hint" for="gal-task">task</label>
+      <select id="gal-task">
+        <option value="" ${!wb.galleryTask ? "selected" : ""}>all tasks</option>
+        ${tasks.map(t => `
+          <option value="${esc(t)}" ${t === wb.galleryTask ? "selected" : ""}>${esc(t)}</option>`).join("")}
+      </select>
+      <label class="bench-hint" for="gal-grader">grader</label>
+      <select id="gal-grader" ${graders.length ? "" : "disabled"}>
+        ${graders.length ? graders.map(g => `
+          <option value="${esc(g)}" ${g === wb.galleryGrader ? "selected" : ""}>${esc(g)}</option>`).join("")
+          : `<option>none yet</option>`}
+      </select>
+      ${wb.galleryTag ? `
+        <span class="bench-hint">tagged <b>#${esc(wb.galleryTag)}</b> ·
+          <a href="${galleryHash(wb, { task: wb.galleryTask, grader: wb.galleryGrader })}">clear</a></span>`
+        : ""}
+    </div>
+    ${wb.runsErr ? `<div class="ed-err">${errorBox(wb.runsErr)}</div>` : ""}
+    ${shown.length ? `
+      <div class="gal-grid">${shown.map(e => galleryCellHtml(wb, e)).join("")}</div>
+      ${!wb.galleryAll && entries.length > GALLERY_CAP ? `
+        <p class="gal-more-wrap"><button type="button" class="btn btn-sm btn-ghost"
+          data-gal-more>All ${entries.length} images →</button></p>` : ""}`
+      : wb.runsErr ? "" : `
+      <div class="ed-empty">
+        <h3>No images yet</h3>
+        <p>Gallery shows one representative image per run: a grade's own
+           picture first, then the run's own image. Run or grade something
+           that produces one to see it here.</p>
+      </div>`}`;
+}
+
+function renderGalleryPane(wb) {
+  const box = document.getElementById("wb-editor");
+  if (!box) return;
+  if (wb.runs === null) {
+    box.innerHTML = `<div class="ed-empty"><p>Loading runs…</p></div>`;
+    ensureRuns(wb).then(() => { if (state.wb === wb) renderBenchSurfaces(wb); });
+    return;
+  }
+  const tasks = taskNames(wb);
+  if (wb.galleryTask && !tasks.includes(wb.galleryTask)) wb.galleryTask = null;
+  const graders = graderNames(wb);
+  if (!wb.galleryGrader || !graders.includes(wb.galleryGrader)) {
+    wb.galleryGrader = graders.includes("default") ? "default" : (graders[0] || null);
+  }
+  box.innerHTML = galleryHtml(wb, tasks, graders);
+  bindGalleryPane(wb, box);
+}
+
+function bindGalleryPane(wb, box) {
+  box.querySelector("#gal-task")?.addEventListener("change", ev => {
+    wb.galleryAll = false;
+    location.hash = galleryHash(wb,
+      { task: ev.target.value || null, grader: wb.galleryGrader, tag: wb.galleryTag });
+  });
+  box.querySelector("#gal-grader")?.addEventListener("change", ev => {
+    wb.galleryGrader = ev.target.value;
+    renderGalleryPane(wb);
+  });
+  box.querySelector("[data-gal-more]")?.addEventListener("click", () => {
+    wb.galleryAll = true;
+    renderGalleryPane(wb);
+  });
+}
+
+function renderGalleryNote(wb, box) {
+  box.innerHTML = `
+    <p class="ctx-eyebrow">Gallery</p>
+    <p class="ctx-sub">every run's picture, on one screen</p>
+    <div class="ctx-note">
+      <p>Each cell shows a run's representative image - a grade's own
+         picture first, then the run's own image - sorted best score
+         first under the active grader.</p>
+      ${wb.galleryTask ? `<p><a href="${resultsHash(wb, wb.galleryTask)}">
+         results for this task →</a></p>` : ""}
+    </div>`;
+}
+
 // --- results tab (#/eval/<slug>/results) -----------------------------------
 //
 // One eval's Results-tab document (site.eval_results via GET .../results):
@@ -4828,19 +5057,26 @@ function leaderboardHtml(groups) {
     </button>`).join("");
 }
 
-function tagSharesHtml(tags, total) {
+function tagSharesHtml(tags, total, wb, grader) {
   const entries = Object.entries(tags || {})
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   if (!entries.length) return `<div class="lb-empty">No tags recorded yet.</div>`;
   return entries.map(([tag, n]) => {
     const pct = total ? Math.round(n / total * 100) : 0;
+    // The gallery link is a sibling of the runs-pivot button, not nested
+    // inside it - an <a> can't nest in a <button>, same rule as the
+    // Compare card's pin control.
     return `
-      <button type="button" class="tagshare-row" data-tag="${esc(tag)}"
-              title="${esc(`show runs tagged #${tag}`)}">
-        <span class="tagshare-name">#${esc(tag)}</span>
-        <span class="tagshare-bar"><div style="width:${pct}%"></div></span>
-        <span class="tagshare-pct">${n}/${total} (${pct}%)</span>
-      </button>`;
+      <div class="tagshare-line">
+        <button type="button" class="tagshare-row" data-tag="${esc(tag)}"
+                title="${esc(`show runs tagged #${tag}`)}">
+          <span class="tagshare-name">#${esc(tag)}</span>
+          <span class="tagshare-bar"><div style="width:${pct}%"></div></span>
+          <span class="tagshare-pct">${n}/${total} (${pct}%)</span>
+        </button>
+        ${wb ? `<a class="tagshare-gal" title="${esc(`images tagged #${tag}`)}"
+          href="${galleryHash(wb, { tag, task: wb.resultsTask, grader })}">gallery →</a>` : ""}
+      </div>`;
   }).join("");
 }
 
@@ -4953,6 +5189,7 @@ function renderResultsPane(wb) {
             ? `<span class="bench-hint">grader: <b>${esc(r.grader)}</b></span>`
             : `<span class="bench-hint">no graders yet</span>`}
         <a href="${compareHash(wb)}">compare outputs →</a>
+        <a href="${galleryHash(wb, { task: wb.resultsTask, grader: r.grader })}">gallery →</a>
       </span>
     </div>
     ${wb.resultsErr ? `<div class="ed-err">${errorBox(wb.resultsErr)}</div>` : ""}
@@ -4977,7 +5214,7 @@ function renderResultsPane(wb) {
         </div>
         <div class="results-section">
           <h3>Tags</h3>
-          ${tagSharesHtml(r.tags, r.total)}
+          ${tagSharesHtml(r.tags, r.total, wb, r.grader)}
         </div>
         <div class="results-section">
           <h3>Per-model metrics</h3>
@@ -5700,8 +5937,8 @@ async function syncSweepOnBoot() {
 //
 // Continuous auto-refresh (Batch 2 item 4), parity with the old dashboard's
 // always-on 3s poll (app.html:738-770): whichever READ surface is visible -
-// the shelf, the runs list/detail, the per-eval Results tab, Compare, or
-// the global matrix - re-fetches and re-renders every ~3s, so a run or
+// the shelf, the runs list/detail, the per-eval Results tab, Compare,
+// Gallery, or the global matrix - re-fetches and re-renders every ~3s, so a run or
 // grade landing from any process (a CLI run in another terminal, say)
 // shows up without a reload. No longer gated on an active sweep; tab
 // visibility is the only gate (no pre-existing visibility/backoff
@@ -5724,7 +5961,8 @@ async function refreshVisibleResults() {
       await loadEvalResults(wb, wb.resultsGrader, wb.resultsTask, true);
       if (state.wb === wb) renderResultsPane(wb);
     } else if (state.wb && state.wb.surface
-        && (state.wb.surface.runs || state.wb.surface.compare)) {
+        && (state.wb.surface.runs || state.wb.surface.compare
+            || state.wb.surface.gallery)) {
       const wb = state.wb;
       await ensureRuns(wb, true);
       if (state.wb === wb) renderBenchSurfaces(wb);
@@ -5801,7 +6039,7 @@ function route() {
     return renderSweep();
   }
   const m = hashPath.match(
-    /^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?|(\/runs)(?:\/([^/]+))?|(\/results)|(\/compare))?$/);
+    /^#\/eval\/([^/]+)(?:\/f\/([^/]+?)(\/raw)?|(\/runs)(?:\/([^/]+))?|(\/results)|(\/compare)|(\/gallery))?$/);
   document.body.classList.toggle("wb", !!m);
   if (m) {
     const slug = decodeURIComponent(m[1]);
@@ -5814,6 +6052,15 @@ function route() {
       const params = new URLSearchParams(hashQuery || "");
       return renderWorkbench(slug,
         { compare: true, task: params.get("task") || null });
+    }
+    if (m[8]) {
+      const params = new URLSearchParams(hashQuery || "");
+      return renderWorkbench(slug, {
+        gallery: true,
+        task: params.get("task") || null,
+        tag: params.get("tag") || null,
+        grader: params.get("grader") || null,
+      });
     }
     if (m[4]) {
       const params = new URLSearchParams(hashQuery || "");
