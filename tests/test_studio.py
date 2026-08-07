@@ -440,6 +440,16 @@ def test_studio_html_run_detail_crosslinks_to_compare_and_results():
     assert "results for this task" in note
 
 
+def test_studio_html_results_head_compare_link_scoped_to_task():
+    """Nav overhaul: the Results tab header's "compare outputs" link now
+    carries wb.resultsTask, matching its "gallery" sibling right beside it
+    - previously it silently dropped the task scope a reader had already
+    picked."""
+    html = studio.studio_html()
+    pane = html.split("function renderResultsPane(wb)")[1].split("\n}\n", 1)[0]
+    assert 'href="${compareHash(wb, wb.resultsTask)}"' in pane
+
+
 def test_studio_html_read_surfaces_poll_continuously_outside_sweeps():
     """Batch 2 item 4: continuous auto-refresh outside sweeps - parity with
     the old dashboard's always-on 3s poll (app.html:738-770). READ surfaces

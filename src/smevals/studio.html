@@ -5287,7 +5287,7 @@ function renderResultsPane(wb) {
           </select>` : graders.length === 1
             ? `<span class="bench-hint">grader: <b>${esc(r.grader)}</b></span>`
             : `<span class="bench-hint">no graders yet</span>`}
-        <a href="${compareHash(wb)}">compare outputs →</a>
+        <a href="${compareHash(wb, wb.resultsTask)}">compare outputs →</a>
         <a href="${galleryHash(wb, { task: wb.resultsTask, grader: r.grader })}">gallery →</a>
       </span>
     </div>
