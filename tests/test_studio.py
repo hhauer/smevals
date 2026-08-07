@@ -392,6 +392,40 @@ def test_studio_html_header_eval_switcher():
     assert ">${esc(e.name)}</option>" in html
 
 
+def test_studio_html_eval_tabs_nav():
+    """Nav overhaul: a persistent per-eval tab bar (files/runs/results/
+    compare/gallery) in the workbench shell, one click away regardless of
+    the current sub-surface - parity with the switcher above, but scoped to
+    the open eval's own sections. renderShell draws it once (the shell
+    persists across sub-surface switches); renderPanes runs on every switch
+    but never redraws the shell, so syncEvalTabs is what keeps the active
+    tab honest, mirroring how syncEvalSwitcher keeps the header select
+    honest."""
+    html = studio.studio_html()
+
+    m = re.search(r'<nav class="eval-tabs"[^>]*>.*?</nav>', html, re.S)
+    assert m, "renderShell should draw a persistent eval-tabs nav"
+    tabs = m.group(0)
+
+    # five tabs, each an unscoped destination - task/tag scopes are
+    # eval-specific and belong to the entry links within a surface, not
+    # this always-visible bar
+    assert 'href="${fileHash(wb, null, false)}"' in tabs
+    assert 'href="${runsHash(wb)}"' in tabs
+    assert 'href="${resultsHash(wb)}"' in tabs
+    assert 'href="${compareHash(wb)}"' in tabs
+    assert 'href="${galleryHash(wb, {})}"' in tabs
+    for tab in ("files", "runs", "results", "compare", "gallery"):
+        assert f'data-tab="{tab}"' in tabs
+
+    # active-state syncing: called from renderPanes (which runs on every
+    # sub-surface switch), not just renderShell (which draws the nav once)
+    assert "function syncEvalTabs" in html
+    panes = html.split("function renderPanes(wb)")[1].split("\n}\n", 1)[0]
+    assert "syncEvalTabs(wb)" in panes
+    assert "aria-current" in html
+
+
 def test_studio_html_read_surfaces_poll_continuously_outside_sweeps():
     """Batch 2 item 4: continuous auto-refresh outside sweeps - parity with
     the old dashboard's always-on 3s poll (app.html:738-770). READ surfaces
