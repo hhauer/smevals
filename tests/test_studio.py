@@ -662,6 +662,48 @@ def test_studio_html_runs_list_recent_grades_sort():
     assert "wb.runsSort = ev.target.value" in pane
 
 
+def test_studio_html_run_detail_run_again_reuses_bench_run():
+    """Batch A item 1: run detail's "Run again" button starts a fresh run
+    of exactly the viewed run's task/config/model (row.task/config/model)
+    through the same POST/poll machinery the task-mirror's "Run this
+    task" form already uses - both call sites now share
+    startBenchRun(wb, {task, config, model}); startRun (the mirror's own
+    button) becomes a thin wrapper around it, not a second copy of the
+    POST/poll logic. The button disables (never hides) when a job is
+    already in flight - mirroring how the mirror's own Run button
+    disables - or when the run's config no longer exists in the file
+    tree, with a title explaining why."""
+    html = studio.studio_html()
+
+    assert "async function startBenchRun(wb, { task, config, model })" in html
+    core = html.split(
+        "async function startBenchRun(wb, { task, config, model })"
+    )[1].split("\n}\n", 1)[0]
+    assert "/api/evals/${enc(wb.slug)}/run" in core
+    assert "pollJob(wb, job.id)" in core
+    assert "renderBenchSurfaces(wb)" in core
+
+    mirror = html.split("async function startRun(wb, buf)")[1].split("\n}\n", 1)[0]
+    assert "startBenchRun(wb, {" in mirror
+    assert "task: fileStem(buf.path)" in mirror
+    assert "config: wb.mirrorConfig" in mirror
+    assert "model: wb.bench.model" in mirror
+
+    detail = html.split("function renderRunDetail(wb, box)")[1].split("\n}\n", 1)[0]
+    assert 'id="run-again"' in detail
+    assert '"Run again"' in detail
+    assert (
+        "startBenchRun(wb, { task: row.task, config: row.config, model: row.model })"
+        in detail
+    )
+    assert (
+        'wb.job && (wb.job.status === "queued" || wb.job.status === "running")'
+        in detail
+    )
+    assert "configNames(wb).includes(row.config)" in detail
+    assert "no longer exists" in detail
+
+
 # --- GET /api/schemas --------------------------------------------------------
 
 
