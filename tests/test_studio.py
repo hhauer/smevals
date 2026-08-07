@@ -2868,3 +2868,24 @@ def test_models_dedupes_and_sorts_across_llm_and_lms(server, monkeypatch, tmp_pa
     assert data["models"] == sorted(
         ["shared-model", "only-local-model", "gpt-4.1-mini"]
     )
+
+
+def test_studio_html_run_detail_edit_grader_link():
+    """Batch A item 2: each grade section on the run detail links to its
+    grader's file - the moment you disagree with a grade is the moment
+    you want to edit the rubric."""
+    html = studio.studio_html()
+    assert "fileHash(wb, `graders/${name}.yaml`" in html
+    assert "edit grader →" in html
+
+
+def test_studio_html_empty_states_link_to_task_run():
+    """Batch A item 3: Compare's and Results' task-scoped empty states
+    link to the task file, where the run form lives - a dead end that
+    says "no runs yet" should hand you the way to make one. Rendered
+    only when the scoped task actually exists as a file."""
+    html = studio.studio_html()
+    assert html.count("open the task to run it →") >= 2
+    assert "fileHash(wb, `tasks/${wb.compareTask}.yaml`" in html
+    assert "fileHash(wb, `tasks/${wb.resultsTask}.yaml`" in html
+    assert "taskNames(wb).includes(wb.compareTask)" in html
