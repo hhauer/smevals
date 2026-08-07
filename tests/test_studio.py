@@ -377,16 +377,18 @@ def test_studio_html_header_eval_switcher():
     with the old dashboard's always-visible nav#evals (app.html:186-190) -
     every eval one click away regardless of the current surface. A compact
     <select> (a flat link list would crowd the header once an install has
-    many evals), populated from state.evals and navigating to #/eval/<slug>
-    on change; the current eval is pre-selected when inside one, resynced
-    both when state.evals (re)loads and when a stashed workbench reattaches
-    without a fresh fetch (renderShell runs on both paths)."""
+    many evals), populated from state.evals and navigating to the target
+    eval on change - test_studio_html_eval_switcher_preserves_sub_surface
+    below covers exactly which page that lands on; the current eval is
+    pre-selected when inside one, resynced both when state.evals (re)loads
+    and when a stashed workbench reattaches without a fresh fetch
+    (renderShell runs on both paths)."""
     html = studio.studio_html()
     assert 'id="eval-switcher"' in html
     assert "function syncEvalSwitcher" in html
     assert "syncEvalSwitcher(state.wb ? state.wb.slug : null)" in html
     assert "syncEvalSwitcher(wb.slug)" in html
-    assert "location.hash = `#/eval/${enc(slug)}`" in html
+    assert "`#/eval/${enc(slug)}`" in html
     # esc() discipline: both the slug (attribute) and the name (text) escaped
     assert 'value="${esc(e.slug)}"' in html
     assert ">${esc(e.name)}</option>" in html
@@ -459,6 +461,25 @@ def test_studio_html_gallery_note_links_to_compare():
     note = html.split("function renderGalleryNote(wb, box)")[1].split("\n}\n", 1)[0]
     assert 'href="${compareHash(wb, wb.galleryTask)}"' in note
     assert "compare outputs" in note
+
+
+def test_studio_html_eval_switcher_preserves_sub_surface():
+    """Nav overhaul: switching evals from the header select preserves an
+    unscoped sub-surface (runs list, results, compare, gallery) on the
+    target eval, rather than always landing on its bare page - task/tag
+    scopes are eval-specific so they don't carry over. A run detail page
+    and file surfaces still land on the target eval's bare page, same as
+    before."""
+    html = studio.studio_html()
+    handler = html.split(
+        'document.getElementById("eval-switcher").addEventListener("change", event => {'
+    )[1].split("\n});\n", 1)[0]
+    assert "state.wb" in handler
+    assert "surface.runs && !surface.run" in handler
+    assert "runsHash({ slug })" in handler
+    assert "resultsHash({ slug })" in handler
+    assert "compareHash({ slug })" in handler
+    assert "galleryHash({ slug })" in handler
 
 
 def test_studio_html_read_surfaces_poll_continuously_outside_sweeps():

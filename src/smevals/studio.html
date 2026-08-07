@@ -6136,9 +6136,23 @@ window.addEventListener("beforeunload", event => {
 // Bound once: syncEvalSwitcher only ever replaces the <select>'s <option>
 // children, never the element itself, so this listener survives every
 // rebuild of the option list.
+//
+// Jumping evals preserves an unscoped sub-surface - runs list, results,
+// compare, gallery - since those sections exist on every eval; task/tag
+// scopes don't carry over (they're eval-specific). A run detail page
+// (wb.surface.runs with a run) and file surfaces land on the target
+// eval's bare page, same as before. The hash builders only read
+// wb.slug, so a bare { slug } stands in for the target eval's workbench.
 document.getElementById("eval-switcher").addEventListener("change", event => {
   const slug = event.target.value;
-  if (slug) location.hash = `#/eval/${enc(slug)}`;
+  if (!slug) return;
+  const surface = state.wb ? state.wb.surface || {} : {};
+  location.hash =
+    surface.runs && !surface.run ? runsHash({ slug })
+    : surface.results ? resultsHash({ slug })
+    : surface.compare ? compareHash({ slug })
+    : surface.gallery ? galleryHash({ slug })
+    : `#/eval/${enc(slug)}`;
 });
 
 // --- router --------------------------------------------------------------
