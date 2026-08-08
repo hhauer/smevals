@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 import smevals.cli
-from conftest import read_yaml, run_dirs
+from conftest import python_script, read_yaml, run_dirs
 
 
 def test_run_records_output_and_run_yaml(invoke, make_eval):
@@ -237,7 +237,48 @@ def test_repeat_runs_in_full_passes(invoke, make_eval, tmp_path):
         tasks={"aa": {"prompt": "x"}, "bb": {"prompt": "y"}}, runner=runner
     )
     invoke("run", eval_dir, "-n", "2")
-    assert log.read_text().splitlines() == ["aa", "bb", "aa", "bb"]
+    assert sorted(log.read_text().splitlines()) == ["aa", "aa", "bb", "bb"]
+
+
+def test_run_respects_configured_concurrency(invoke, make_eval, tmp_path):
+    active = tmp_path / "active"
+    maximum = tmp_path / "maximum"
+    runner = f"""
+        import fcntl
+        import time
+        from pathlib import Path
+
+        active = Path({str(active)!r})
+        maximum = Path({str(maximum)!r})
+        with active.open('a+') as file:
+            fcntl.flock(file, fcntl.LOCK_EX)
+            file.seek(0)
+            count = int(file.read() or 0) + 1
+            file.seek(0)
+            file.truncate()
+            file.write(str(count))
+            file.flush()
+            old_max = int(maximum.read_text() or 0) if maximum.exists() else 0
+            maximum.write_text(str(max(old_max, count)))
+            fcntl.flock(file, fcntl.LOCK_UN)
+        time.sleep(0.15)
+        with active.open('a+') as file:
+            fcntl.flock(file, fcntl.LOCK_EX)
+            file.seek(0)
+            count = int(file.read() or 0) - 1
+            file.seek(0)
+            file.truncate()
+            file.write(str(count))
+            fcntl.flock(file, fcntl.LOCK_UN)
+        print('hello')
+    """
+    eval_dir = make_eval(
+        tasks={str(i): {"prompt": "x"} for i in range(6)},
+        runner=python_script(runner),
+        configs={"default": {"runner": "../run-llm", "model": "test-model", "concurrency": 2}},
+    )
+    invoke("run", eval_dir)
+    assert int(maximum.read_text()) == 2
 
 
 def test_repeat_must_be_at_least_one(invoke, make_eval):

@@ -6,13 +6,20 @@ import re
 import shutil
 import statistics
 import subprocess
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
 import click
 import yaml
+
+
+DEFAULT_CONCURRENCY = 16
+CONCURRENCY_ENV = "SMEVALS_CONCURRENCY"
+_run_dir_lock = threading.Lock()
 
 
 @click.group()
@@ -67,6 +74,44 @@ def load_grader(eval_path, grader_name):
             + (", ".join(available) or "(none)")
         )
     return grader_path, load_yaml(grader_path)
+
+
+def resolve_concurrency(*docs):
+    """Resolve concurrency from the environment, YAML documents, or default."""
+    raw = os.environ.get(CONCURRENCY_ENV)
+    if raw is None:
+        for doc in docs:
+            if isinstance(doc, dict) and doc.get("concurrency") is not None:
+                raw = doc["concurrency"]
+                break
+    if raw is None:
+        return DEFAULT_CONCURRENCY
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise click.ClickException(
+            f"{CONCURRENCY_ENV} / concurrency must be a positive integer"
+        )
+    if value < 1:
+        raise click.ClickException(
+            f"{CONCURRENCY_ENV} / concurrency must be a positive integer"
+        )
+    return value
+
+
+concurrency_option = click.option(
+    "--concurrency",
+    type=click.IntRange(min=1),
+    default=None,
+    metavar="N",
+    help="Maximum number of concurrent generation or grading requests",
+)
+
+
+def map_concurrently(items, worker, concurrency):
+    """Run independent work concurrently, preserving input order in results."""
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        return list(executor.map(worker, items))
 
 
 def resolve_runs_root(eval_path, eval_doc, runs_dir):
@@ -170,11 +215,21 @@ def normalize_check_info(info):
     is_flag=False,
     flag_value="default",
     default=None,
-    help="Grade each Run the moment it finishes; -g alone uses the "
+    help="Grade all successful Runs after generation; -g alone uses the "
     "grader named 'default'",
 )
+@concurrency_option
 @runs_dir_option
-def run(eval_path, models, config_name, tasks, repeat, grader_name, runs_dir):
+def run(
+    eval_path,
+    models,
+    config_name,
+    tasks,
+    repeat,
+    grader_name,
+    concurrency,
+    runs_dir,
+):
     "Execute the Tasks in an Eval, recording each Run"
     eval_doc = load_eval(eval_path)
     runs_root = resolve_runs_root(eval_path, eval_doc, runs_dir)
@@ -192,6 +247,7 @@ def run(eval_path, models, config_name, tasks, repeat, grader_name, runs_dir):
             + (", ".join(available) or "(none)")
         )
     config = load_yaml(config_path)
+    concurrency = concurrency or resolve_concurrency(config, eval_doc)
 
     runner = (config_path.parent / config["runner"]).resolve()
     if not (runner.is_file() and os.access(runner, os.X_OK)):
@@ -230,6 +286,7 @@ def run(eval_path, models, config_name, tasks, repeat, grader_name, runs_dir):
                 )
 
     failures = grade_failures = 0
+    jobs = []
     # Repeat index outermost: full passes over every pair, so an
     # interrupted session leaves balanced samples across tasks and models
     while any(remaining.values()):
@@ -238,20 +295,32 @@ def run(eval_path, models, config_name, tasks, repeat, grader_name, runs_dir):
                 if not remaining[(task["name"], model)]:
                     continue
                 remaining[(task["name"], model)] -= 1
-                ok, run_dir = execute_run(runs_root, task, config_name, runner, model)
-                failures += not ok
-                if grader:
-                    # A failed Run is a harness error, not evidence - there
-                    # is nothing meaningful to grade
-                    if not ok:
-                        click.echo("    grade: skipped (run failed)")
-                        continue
-                    grade_dir = run_dir / "grades" / grader_name
-                    record = grade_run(run_dir, grade_dir, grader, grader_path)
-                    grade_failures += record["outcome"] != "pass"
-                    score = record["score"]
-                    score_display = "" if score is None else f" score={score}"
-                    click.echo(f"    grade: {record['outcome']}{score_display}")
+                jobs.append((task, model))
+    results = map_concurrently(
+        jobs,
+        lambda job: execute_run(runs_root, job[0], config_name, runner, job[1]),
+        concurrency,
+    )
+    failures += sum(not ok for ok, _ in results)
+
+    # Keep generation and grading as separate phases. This also prevents a
+    # grading request from consuming a generation worker slot.
+    if grader:
+        grade_results = map_concurrently(
+            [run_dir for ok, run_dir in results if ok],
+            lambda run_dir: grade_run(
+                run_dir, run_dir / "grades" / grader_name, grader, grader_path
+            ),
+            concurrency,
+        )
+        for record in grade_results:
+            grade_failures += record["outcome"] != "pass"
+            score = record["score"]
+            score_display = "" if score is None else f" score={score}"
+            click.echo(f"    grade: {record['outcome']}{score_display}")
+        for ok, _ in results:
+            if not ok:
+                click.echo("    grade: skipped (run failed)")
     problems = []
     if failures:
         problems.append(f"{failures} run(s) failed")
@@ -283,10 +352,11 @@ def execute_run(runs_root, task, config_name, runner, model):
     run_dir = parent / timestamp
     # Repeat runs in the same second get a numeric suffix
     suffix = 1
-    while run_dir.exists():
-        suffix += 1
-        run_dir = parent / f"{timestamp}-{suffix}"
-    run_dir.mkdir(parents=True)
+    with _run_dir_lock:
+        while run_dir.exists():
+            suffix += 1
+            run_dir = parent / f"{timestamp}-{suffix}"
+        run_dir.mkdir(parents=True)
 
     click.echo(f"{task['name']} / {config_name} / {model} ... ", nl=False)
     env = (
@@ -350,19 +420,22 @@ def execute_run(runs_root, task, config_name, runner, model):
     is_flag=True,
     help="Also grade runs that already have a Grade from this grader",
 )
+@concurrency_option
 @runs_dir_option
-def grade(eval_path, grader_name, regrade, runs_dir):
+def grade(eval_path, grader_name, regrade, concurrency, runs_dir):
     "Apply a Grader to each Run in an Eval, producing Grades"
     eval_doc = load_eval(eval_path)
     runs_root = resolve_runs_root(eval_path, eval_doc, runs_dir)
 
     grader_path, grader = load_grader(eval_path, grader_name)
+    concurrency = concurrency or resolve_concurrency(grader, eval_doc)
 
     run_files = sorted(runs_root.rglob("run.yaml"))
     if not run_files:
         raise click.ClickException(f"No runs found in {runs_root}")
 
     graded = skipped = stale = failures = failed_runs = 0
+    grade_jobs = []
     for run_file in run_files:
         run_dir = run_file.parent
         # A failed Run is a harness error, not evidence - never grade it
@@ -376,8 +449,15 @@ def grade(eval_path, grader_name, regrade, runs_dir):
             else:
                 stale += 1
             continue
+        grade_jobs.append((run_dir, grade_dir))
+
+    grade_results = map_concurrently(
+        grade_jobs,
+        lambda job: grade_run(job[0], job[1], grader, grader_path),
+        concurrency,
+    )
+    for (run_dir, _), record in zip(grade_jobs, grade_results):
         click.echo(f"{run_dir.relative_to(runs_root)} ... ", nl=False)
-        record = grade_run(run_dir, grade_dir, grader, grader_path)
         graded += 1
         failures += record["outcome"] != "pass"
         score = record["score"]

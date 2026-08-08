@@ -82,6 +82,14 @@ An Eval also needs at least one Config, defined in `configs/*.yaml`. If there is
 
 `my-eval/configs/default.yaml` - the Config named `default` is used when no `-c` option is passed to `smevals run`.
 
+Runner and grader requests are concurrent, with a default maximum of 16 in-flight
+requests. Use `--concurrency N` on `run` or `grade` for the authoritative setting.
+Otherwise, set `concurrency: N` in the selected Config to change it for `run`, or
+in the Grader (or `eval.yaml`) to change it for `grade`; the
+`SMEVALS_CONCURRENCY` environment variable overrides YAML.
+Generation and grading are separate phases when `run -g` is used: all Runs are
+generated before any of them are graded.
+
 `runner` specifies a path to an executable program relative to this file:
 
 ```yaml
@@ -135,7 +143,7 @@ sys.exit(0 if len(lines) == 3 else 1)
 To run the eval, grade it and then view the results:
 
 ```bash
-smevals run my-eval -g                 # run every task, grade as each finishes
+smevals run my-eval -g                 # run every task, then grade the Runs
 smevals run my-eval -m gpt-4.1-nano -m gemini-2.5-flash -g   # more models
 smevals run my-eval -n 5 -g            # top every task up to five graded runs
 smevals report my-eval                 # markdown report in the terminal
