@@ -281,6 +281,18 @@ def test_run_respects_configured_concurrency(invoke, make_eval, tmp_path):
     assert int(maximum.read_text()) == 2
 
 
+def test_concurrent_run_output_is_ordered(invoke, make_eval):
+    runner = '#!/bin/sh\nif [ "$SMEVALS_TASK" = aa ]; then sleep 0.1; fi\necho hello\n'
+    eval_dir = make_eval(
+        tasks={"aa": {"prompt": "x"}, "bb": {"prompt": "y"}}, runner=runner
+    )
+
+    result = invoke("run", eval_dir, "--concurrency", "2")
+    aa = result.output.index("aa / default / test-model ...")
+    bb = result.output.index("bb / default / test-model ...")
+    assert aa < bb
+
+
 def test_repeat_must_be_at_least_one(invoke, make_eval):
     eval_dir = make_eval()
     result = invoke("run", eval_dir, "-n", "0", expect_exit=2)

@@ -301,13 +301,28 @@ def run(
         lambda job: execute_run(runs_root, job[0], config_name, runner, job[1]),
         concurrency,
     )
-    failures += sum(not ok for ok, _ in results)
+    # Workers capture all subprocess output.  Emit progress here, after the
+    # ordered map has completed, so concurrent runs cannot write over one
+    # another on the terminal.
+    for ok, run_dir, duration in results:
+        failures += not ok
+        run = load_yaml(run_dir / "run.yaml")
+        task = run.get("task", {})
+        config = run.get("config", {})
+        task_name = task.get("name") if isinstance(task, dict) else task
+        status = "ok" if ok else f"FAILED (exit {run.get('exit_code', 1)})"
+        relative = os.path.relpath(run_dir)
+        display = relative if len(relative) < len(str(run_dir)) else str(run_dir)
+        click.echo(
+            f"{task_name} / {config.get('name')} / {config.get('model')} ... "
+            f"{status} ({duration:.1f}s) -> {display}"
+        )
 
     # Keep generation and grading as separate phases. This also prevents a
     # grading request from consuming a generation worker slot.
     if grader:
         grade_results = map_concurrently(
-            [run_dir for ok, run_dir in results if ok],
+            [run_dir for ok, run_dir, _ in results if ok],
             lambda run_dir: grade_run(
                 run_dir, run_dir / "grades" / grader_name, grader, grader_path
             ),
@@ -318,7 +333,7 @@ def run(
             score = record["score"]
             score_display = "" if score is None else f" score={score}"
             click.echo(f"    grade: {record['outcome']}{score_display}")
-        for ok, _ in results:
+        for ok, _, _ in results:
             if not ok:
                 click.echo("    grade: skipped (run failed)")
     problems = []
@@ -358,7 +373,6 @@ def execute_run(runs_root, task, config_name, runner, model):
             run_dir = parent / f"{timestamp}-{suffix}"
         run_dir.mkdir(parents=True)
 
-    click.echo(f"{task['name']} / {config_name} / {model} ... ", nl=False)
     env = (
         os.environ
         | scalar_env_vars("SMEVALS_TASK_", task)
@@ -396,11 +410,7 @@ def execute_run(runs_root, task, config_name, runner, model):
     (run_dir / "run.yaml").write_text(yaml.safe_dump(record, sort_keys=False))
 
     ok = result.returncode == 0
-    status = "ok" if ok else f"FAILED (exit {result.returncode})"
-    relative = os.path.relpath(run_dir)
-    display = relative if len(relative) < len(str(run_dir)) else str(run_dir)
-    click.echo(f"{status} ({duration:.1f}s) -> {display}")
-    return ok, run_dir
+    return ok, run_dir, duration
 
 
 @cli.command()
@@ -887,7 +897,16 @@ def render_model_blocks(rows, by_task):
         score_display = mean_stderr(scores) if scores else "-"
         lines.append(f"- score: {score_display} over {counts}")
         for key in sorted({k for r in group for k in r["metrics"]}):
-            values = [r["metrics"][key] for r in group if key in r["metrics"]]
+            # A checker may deliberately emit null for an unavailable metric.
+            # Keep that value in the raw Grade/JSON, but exclude it from
+            # aggregate statistics rather than passing it to float().
+            values = [
+                r["metrics"][key]
+                for r in group
+                if key in r["metrics"] and r["metrics"][key] is not None
+            ]
+            if not values:
+                continue
             if all(isinstance(v, bool) for v in values):
                 display = f"{sum(values) / len(values):.0%}"
             else:

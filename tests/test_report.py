@@ -115,6 +115,24 @@ def test_metrics_aggregation_numbers_and_booleans(invoke, make_eval):
     assert "- status_correct: 50%" in result.output  # booleans as rates
 
 
+def test_metrics_aggregation_ignores_null_values(invoke, make_eval):
+    eval_dir, grader_doc = reported_eval(make_eval)
+    runs_root = eval_dir / "runs"
+    write_grade(
+        write_run(runs_root),
+        grader_doc,
+        checks=[{"checker": "c", "ok": True, "metrics": {"latency": None}}],
+    )
+    write_grade(
+        write_run(runs_root),
+        grader_doc,
+        checks=[{"checker": "c", "ok": True, "metrics": {"latency": 2.0}}],
+    )
+
+    result = invoke("report", eval_dir)
+    assert "- latency: 2.00" in result.output
+
+
 def test_by_task_breakdown(invoke, make_eval):
     eval_dir, grader_doc = reported_eval(make_eval)
     runs_root = eval_dir / "runs"
