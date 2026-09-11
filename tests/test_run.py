@@ -244,3 +244,44 @@ def test_repeat_must_be_at_least_one(invoke, make_eval):
     eval_dir = make_eval()
     result = invoke("run", eval_dir, "-n", "0", expect_exit=2)
     assert "Invalid value" in result.output
+
+
+def test_config_scalars_reach_runner_and_run_yaml(invoke, make_eval):
+    runner = """\
+#!/bin/sh
+printf '%s\\n' "${SMEVALS_CONFIG_EFFORT-unset}"
+printf '%s\\n' "${SMEVALS_CONFIG_NAME-unset}"
+printf '%s\\n' "${SMEVALS_CONFIG_MODEL-unset}"
+printf '%s\\n' "${SMEVALS_CONFIG_RUNNER-unset}"
+printf '%s\\n' "$SMEVALS_MODEL"
+"""
+    eval_dir = make_eval(
+        configs={
+            "medium": {
+                "runner": "../run-llm",
+                "model": "test-model",
+                "effort": "medium",
+                "tags": ["not", "scalar"],
+            }
+        },
+        runner=runner,
+    )
+    invoke("run", eval_dir, "-c", "medium", "-m", "other-model")
+    run_dir = run_dirs(eval_dir)[0]
+    # runner and model are not re-exported: the Runner is the executable
+    # itself and SMEVALS_MODEL already carries the (possibly overridden) model
+    assert (run_dir / "output.txt").read_text() == (
+        "medium\nmedium\nunset\nunset\nother-model\n"
+    )
+    record = read_yaml(run_dir / "run.yaml")
+    assert record["config"]["effort"] == "medium"
+    assert record["config"]["tags"] == ["not", "scalar"]
+    assert record["config"]["model"] == "other-model"
+
+
+def test_config_without_extra_keys_exports_only_name(invoke, make_eval):
+    runner = "#!/bin/sh\nenv | grep '^SMEVALS_CONFIG_' | sort\n"
+    eval_dir = make_eval(runner=runner)
+    invoke("run", eval_dir)
+    output = (run_dirs(eval_dir)[0] / "output.txt").read_text()
+    assert output == "SMEVALS_CONFIG_NAME=default\n"

@@ -238,7 +238,7 @@ def run(eval_path, models, config_name, tasks, repeat, grader_name, runs_dir):
                 if not remaining[(task["name"], model)]:
                     continue
                 remaining[(task["name"], model)] -= 1
-                ok, run_dir = execute_run(runs_root, task, config_name, runner, model)
+                ok, run_dir = execute_run(runs_root, task, config, runner, model)
                 failures += not ok
                 if grader:
                     # A failed Run is a harness error, not evidence - there
@@ -275,8 +275,12 @@ def count_existing_runs(runs_root, task_name, config_name, model):
     )
 
 
-def execute_run(runs_root, task, config_name, runner, model):
+def execute_run(runs_root, task, config, runner, model):
     "Execute a single Run and record it, returning (ok, run_dir)"
+    config_name = config["name"]
+    # runner and model are not re-exported: the Runner is the executable itself
+    # and SMEVALS_MODEL already carries the model, -m override included
+    config_extras = {k: v for k, v in config.items() if k not in ("runner", "model")}
     started = datetime.now(timezone.utc)
     timestamp = started.strftime("%Y-%m-%dT%H-%M-%SZ")
     parent = runs_root / task["name"] / config_name / slugify(model)
@@ -292,6 +296,7 @@ def execute_run(runs_root, task, config_name, runner, model):
     env = (
         os.environ
         | scalar_env_vars("SMEVALS_TASK_", task)
+        | scalar_env_vars("SMEVALS_CONFIG_", config_extras)
         | {
             "SMEVALS_MODEL": model,
             "SMEVALS_TASK": task["name"],
@@ -311,10 +316,11 @@ def execute_run(runs_root, task, config_name, runner, model):
     if result.stderr:
         (run_dir / "stderr.txt").write_text(result.stderr)
     # run.yaml is written last: its presence marks a complete Run.
-    # The full task is embedded so the Run stays self-describing.
+    # The full task and config are embedded so the Run stays self-describing.
     record = {
         "task": task,
-        "config": {
+        "config": config_extras
+        | {
             "name": config_name,
             "runner": str(runner),
             "model": model,

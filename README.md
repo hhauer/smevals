@@ -150,6 +150,7 @@ smevals serve my-eval                  # live web UI on http://127.0.0.1:7001
 - `SMEVALS_TASK` - the Task's name.
 - `SMEVALS_PROMPT` - the Task's `prompt`, only set if the Task has one.
 - `SMEVALS_TASK_<KEY>` - every scalar key of the Task, uppercased: a Task with `submission: mutant-003` provides `SMEVALS_TASK_SUBMISSION=mutant-003`.
+- `SMEVALS_CONFIG_<KEY>` - every scalar key of the Config other than `runner` and `model`, uppercased: a Config with `effort: medium` provides `SMEVALS_CONFIG_EFFORT=medium`, so Configs can carry run conditions beyond the model.
 - `SMEVALS_RUN_DIR` - absolute path to the Run's directory.
 
 The working directory is the Run's directory. The contract:
