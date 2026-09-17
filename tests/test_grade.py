@@ -241,8 +241,9 @@ def test_non_required_failure_continues(invoke, make_eval):
     )
     assert grade["outcome"] == "fail"
     assert [c["ok"] for c in grade["checks"]] == [False, True]
-    # Every failure scored itself, so the last score stands
-    assert grade["score"] == 0.7
+    # Every failure scored itself, so the Grade is scored - at the lowest
+    # score any check produced, so the later pass cannot mask the failure
+    assert grade["score"] == 0.2
 
 
 def test_unscored_failure_leaves_grade_unscored(invoke, make_eval):
@@ -257,9 +258,13 @@ def test_unscored_failure_leaves_grade_unscored(invoke, make_eval):
     assert grade["score"] is None
 
 
-def test_last_score_wins(invoke, make_eval):
-    grade = graded(invoke, make_eval, {"checks": [emit(score=0.2), emit(score=0.9)]})
-    assert grade["score"] == 0.9
+def test_lowest_score_wins(invoke, make_eval):
+    # The Grade's score is the minimum over every scored check, whichever
+    # order the checks ran in
+    rising = graded(invoke, make_eval, {"checks": [emit(score=0.2), emit(score=0.9)]}, name="rising")
+    assert rising["score"] == 0.2
+    falling = graded(invoke, make_eval, {"checks": [emit(score=0.9), emit(score=0.2)]}, name="falling")
+    assert falling["score"] == 0.2
 
 
 def test_pass_threshold(invoke, make_eval):

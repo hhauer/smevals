@@ -209,7 +209,7 @@ All other keys are configuration for the Checker, passed through via environment
 
 The Grade's outcome and score are computed as follows:
 
-- The Grade's score is the last `score` emitted by any Check - typically the final, most expensive Check. However, if any Check fails without emitting a score of its own, the Grade's score is null: a stale score from an earlier Check never stands in for one that did not run.
+- The Grade's score is the lowest `score` emitted by any Check, so a later Check's pass never masks an earlier Check's failure. However, if any Check fails without emitting a score of its own, the Grade's score is null: a stale score from another Check never stands in for one that did not run.
 - The outcome is `fail` if any Check failed, otherwise `pass` if the score meets `scoring.pass_threshold` (or if there is no threshold or no score).
 
 ## The Checker contract
